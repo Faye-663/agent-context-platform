@@ -1,0 +1,51 @@
+# Local IDE and OS files
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and temporary runtime files
+*.log
+/logs/
+/tmp/
+/temp/
+/.cache/
+
+# Python local environment, caches, and build outputs
+/.venv/
+/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+/.pytest_cache/
+/.mypy_cache/
+/.ruff_cache/
+/.tox/
+/.coverage
+/.coverage.*
+/coverage.xml
+/htmlcov/
+/dist/
+/*.egg-info/
+
+# Local PostgreSQL / pgvector data and dumps
+/pgdata/
+/postgres-data/
+/data/postgres/
+*.dump
+*.backup
+*.sql.gz
+
+# Java build outputs for indexed sample projects or parser fixtures
+target/
+build/
+.gradle/
+*.class
+*.jar
