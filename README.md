@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段一基础能力实现中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型和存储迁移代码。
+项目处于 MVP 阶段二离线索引能力实现中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、存储迁移代码和阶段二离线索引器代码。
 
 已实现范围：
 
@@ -12,10 +12,13 @@
 - SQLAlchemy 存储模型与 `IndexedItemRepository`。
 - Alembic 初始迁移，包含 `indexed_items` 表和 PostgreSQL `vector` 扩展。
 - 阶段一单元测试，覆盖三类来源引用、JSON 序列化、存储读写和 pgvector 字段声明。
+- Java 离线索引器：基于 `tree-sitter-java` 抽取 class、method、annotation、signature、file path 和 line range。
+- SQL DDL 离线索引器：基于 `sqlglot` 抽取 table、column、index 和 DDL 来源。
+- Markdown 离线索引器：基于 `markdown-it-py` 抽取 heading path、正文片段、file path 和 line range。
+- 阶段二单元测试与实际落盘验证，覆盖三类样本索引、来源引用和 repository 写读链路。
 
 尚未实现范围：
 
-- Java / SQL / Markdown 离线索引器。
 - Hybrid Search。
 - Context API HTTP 接口。
 - `build-task-context` 聚合流程。
@@ -30,6 +33,7 @@
 | [MVP 架构设计](docs/architecture/mvp-design.md) | 说明总体架构、数据流和模块边界 |
 | [Context API 契约](docs/api/context-api.md) | 说明首版公开接口和统一返回模型 |
 | [MVP 实施计划](docs/planning/mvp-implementation-plan.md) | 说明依赖顺序、任务拆分、验收与验证 |
+| [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
 | [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
 | [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
 | [ADR-002: Hybrid Search With PostgreSQL pgvector](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | 记录检索与存储选型决策 |
@@ -95,13 +99,19 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 ## 本地验证
 
-阶段一单元测试：
+单元测试：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 uv run --extra test pytest
 ```
+
+当前阶段二验证结果：
+
+- `uv run --extra test pytest -q`：`11 passed`
+- 实际落盘验证：从真实 Java / SQL / Markdown 样本文件读取内容，生成 9 条索引项，写入 SQLite 存储层后读回 `code=2`、`db_schema=4`、`doc=3`。
+- 验证记录见 [阶段二实际验证记录](docs/planning/phase-2-verification.md)。
 
 PostgreSQL 迁移使用 `ACP_DATABASE_URL` 指定数据库连接：
 
@@ -122,4 +132,4 @@ $env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_con
 uv run alembic upgrade head
 ```
 
-本阶段没有硬编码 embedding 维度，因为具体 EmbeddingProvider、模型名和向量维度仍在实施计划的待确认问题中。
+阶段二实际验证暂未覆盖真实 PostgreSQL + pgvector 写读，因为当前实现没有 embedding 写入流程，且具体 EmbeddingProvider、模型名和向量维度仍在实施计划的待确认问题中。后续进入检索阶段前，需要补充真实 PostgreSQL / pgvector 的离线索引写入验证。
