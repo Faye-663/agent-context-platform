@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段二离线索引能力实现中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、存储迁移代码和阶段二离线索引器代码。
+项目处于 MVP 阶段三核心流程实现后验证中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器和阶段三检索 / Context API / 任务上下文构建代码。
 
 已实现范围：
 
@@ -16,12 +16,13 @@
 - SQL DDL 离线索引器：基于 `sqlglot` 抽取 table、column、index 和 DDL 来源。
 - Markdown 离线索引器：基于 `markdown-it-py` 抽取 heading path、正文片段、file path 和 line range。
 - 阶段二单元测试与实际落盘验证，覆盖三类样本索引、来源引用和 repository 写读链路。
+- 混合检索：支持关键词分数、embedding 余弦相似度、结构化过滤和统一 `SearchResult`。
+- Context API：提供 `search-code`、`search-db-schema`、`search-doc` 三类检索接口。
+- `build-task-context`：聚合代码、表结构、文档和相似实现，并在上下文不足时返回 `missing_context` 与 `risks`。
+- 阶段三测试与运行时验证脚本，覆盖接口响应、日志、错误路径和真实数据库写读检索链路。
 
 尚未实现范围：
 
-- Hybrid Search。
-- Context API HTTP 接口。
-- `build-task-context` 聚合流程。
 - MCP 包装层。
 - 固定评测集与回归脚本。
 
@@ -34,6 +35,7 @@
 | [Context API 契约](docs/api/context-api.md) | 说明首版公开接口和统一返回模型 |
 | [MVP 实施计划](docs/planning/mvp-implementation-plan.md) | 说明依赖顺序、任务拆分、验收与验证 |
 | [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
+| [阶段三实际验证记录](docs/planning/phase-3-verification.md) | 记录核心检索流程、接口和真实数据库验证结果 |
 | [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
 | [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
 | [ADR-002: Hybrid Search With PostgreSQL pgvector](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | 记录检索与存储选型决策 |
@@ -107,11 +109,12 @@ $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 uv run --extra test pytest
 ```
 
-当前阶段二验证结果：
+当前阶段三验证结果：
 
-- `uv run --extra test pytest -q`：`11 passed`
-- 实际落盘验证：从真实 Java / SQL / Markdown 样本文件读取内容，生成 9 条索引项，写入 SQLite 存储层后读回 `code=2`、`db_schema=4`、`doc=3`。
-- 验证记录见 [阶段二实际验证记录](docs/planning/phase-2-verification.md)。
+- `uv run --extra test pytest`：`20 passed`
+- `uv run --extra test python scripts/verify_phase3_runtime.py`：通过 FastAPI app factory 实际调用 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context`。
+- 真实 PostgreSQL / pgvector 验证：在 `ACP_DATABASE_URL=postgresql+psycopg://postgres@localhost:55432/agent_context_platform` 下执行迁移与运行时验证通过。
+- 验证记录见 [阶段三实际验证记录](docs/planning/phase-3-verification.md)。
 
 PostgreSQL 迁移使用 `ACP_DATABASE_URL` 指定数据库连接：
 
@@ -132,4 +135,4 @@ $env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_con
 uv run alembic upgrade head
 ```
 
-阶段二实际验证暂未覆盖真实 PostgreSQL + pgvector 写读，因为当前实现没有 embedding 写入流程，且具体 EmbeddingProvider、模型名和向量维度仍在实施计划的待确认问题中。后续进入检索阶段前，需要补充真实 PostgreSQL / pgvector 的离线索引写入验证。
+阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。当前仍未实现外部 EmbeddingProvider 调用，验证脚本使用固定测试向量写入 `embedding` 字段。
