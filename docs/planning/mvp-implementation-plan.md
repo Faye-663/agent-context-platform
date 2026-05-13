@@ -198,7 +198,7 @@
 - [x] `build-task-context` 完成端到端测试。
 - [x] 空结果和错误路径可诊断。
 
-阶段三实际验证记录见 [阶段三实际验证记录](phase-3-verification.md)。当前验证覆盖 SQLite repository、混合检索排序、FastAPI 接口契约、参数错误、查询日志和 `build-task-context` 聚合；尚未覆盖真实 PostgreSQL + pgvector 的数据库侧向量排序性能。
+阶段三实际验证记录见 [阶段三实际验证记录](phase-3-verification.md)。当前验证覆盖 SQLite repository、混合检索排序、FastAPI 接口契约、参数错误、查询日志、`build-task-context` 聚合，以及真实 PostgreSQL + pgvector 写读和运行时检索路径；尚未覆盖外部 EmbeddingProvider 和数据库侧 pgvector 相似度排序。
 
 ## 阶段 4：Agent 接入与评测
 
@@ -261,4 +261,4 @@
 - 真实评测语料使用哪个脱敏 Java 项目。
 - embedding 首版具体服务、模型名、向量维度和 batch size。
 - OpenAI-compatible 外部 LLM 的 provider、模型名和配置方式。
-- 本机 PostgreSQL 与 pgvector 的版本和安装校验命令。
+- 面向部署的固定 ASGI 入口和运行配置加载方式。

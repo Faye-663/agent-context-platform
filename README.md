@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段三核心流程实现后验证中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器和阶段三检索 / Context API / 任务上下文构建代码。
+项目处于 MVP 阶段三已完成、阶段四待实施状态。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器和阶段三检索 / Context API / 任务上下文构建代码。
 
 已实现范围：
 
@@ -23,6 +23,9 @@
 
 尚未实现范围：
 
+- 面向部署的固定 ASGI 入口和运行配置加载器。
+- 外部 EmbeddingProvider 调用与批量 embedding 写入流程。
+- 数据库侧 pgvector 相似度排序。
 - MCP 包装层。
 - 固定评测集与回归脚本。
 
@@ -116,6 +119,8 @@ uv run --extra test pytest
 - 真实 PostgreSQL / pgvector 验证：在 `ACP_DATABASE_URL=postgresql+psycopg://postgres@localhost:55432/agent_context_platform` 下执行迁移与运行时验证通过。
 - 验证记录见 [阶段三实际验证记录](docs/planning/phase-3-verification.md)。
 
+阶段三当前通过 `create_app(search_service)` 创建 FastAPI app，用于测试、脚本验证和后续 MCP 包装层调用。仓库暂未提供固定的 `agent_context_platform.api:app` 部署入口；如果需要启动长期运行的 HTTP 服务，应先补运行配置和应用装配层。
+
 PostgreSQL 迁移使用 `ACP_DATABASE_URL` 指定数据库连接：
 
 ```powershell
@@ -135,4 +140,4 @@ $env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_con
 uv run alembic upgrade head
 ```
 
-阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。当前仍未实现外部 EmbeddingProvider 调用，验证脚本使用固定测试向量写入 `embedding` 字段。
+阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。当前混合检索在应用侧计算关键词分数和向量余弦相似度；仍未实现外部 EmbeddingProvider 调用和数据库侧 pgvector 相似度排序，验证脚本使用固定测试向量写入 `embedding` 字段。

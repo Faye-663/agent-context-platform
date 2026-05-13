@@ -42,5 +42,7 @@ result_counts=code:1,db_schema:1,doc:1,citations:3
 
 - 当前自动化测试仍使用 SQLite repository 和测试样本，便于快速回归。
 - 真实运行时验证使用 PostgreSQL + pgvector 写入测试向量并通过 API 查询。
-- embedding 分数通过已落库的测试向量计算，尚未接入外部 EmbeddingProvider。
+- embedding 分数通过已落库的测试向量在应用侧计算，尚未接入外部 EmbeddingProvider。
+- 尚未实现数据库侧 pgvector 相似度排序。
+- 当前 FastAPI 入口是 `create_app(search_service)` 应用工厂，尚未提供固定 ASGI 部署入口。
 - 首版接口使用应用内 `HybridSearchService` 注入，后续 MCP 包装层应继续只调用 HTTP 接口，不复制检索逻辑。

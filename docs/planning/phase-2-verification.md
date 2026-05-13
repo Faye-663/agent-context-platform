@@ -18,11 +18,10 @@
 
 未覆盖：
 
-- 真实 PostgreSQL + pgvector 的阶段二索引写入链路。
 - embedding 生成与向量维度校验。
-- Hybrid Search、Context API、`build-task-context` 和 MCP 包装层。
+- MCP 包装层。
 
-未覆盖原因：阶段二当前只实现离线索引器，尚未实现 embedding provider、向量检索和 HTTP / MCP 入口。真实 PostgreSQL + pgvector 写入验证应在进入阶段三检索前补充，避免把 SQLite repository 验证误判为完整数据库链路验证。
+阶段三已补充真实 PostgreSQL + pgvector 写读验证、Hybrid Search、Context API 和 `build-task-context` 运行时验证；当前仍未实现 embedding provider 与 MCP 包装层。
 
 ## 验证命令
 
@@ -103,8 +102,8 @@ uv run --extra test pytest -q
 
 ## 后续验证要求
 
-进入阶段三前，需要补充：
+后续阶段需要补充：
 
-- 使用真实 PostgreSQL + pgvector 的离线索引写入验证。
 - embedding provider 配置确认后，补充 embedding 维度与 pgvector 字段兼容性验证。
-- 固定样本上的关键词检索、结构化过滤和空结果诊断验证。
+- MCP 包装层到 Context API 的调用验证。
+- 固定评测集上的召回质量验证。
