@@ -248,6 +248,100 @@
 
 阶段四实际验证记录见 [阶段四实际验证记录](phase-4-verification.md)。当前验证覆盖 MCP `FastMCP` 工具注册、`build-task-context` 工具调用、Context API 错误透传、10 个固定脱敏评测样本、Top5 命中率、Top10 明显无关结果数量和来源引用完整率；尚未覆盖真实脱敏 Java 项目索引库、外部 EmbeddingProvider 和数据库侧 pgvector 相似度排序。
 
+## 阶段 5：真实可用 MVP 收口
+
+阶段四已经证明 MVP 骨架、Context API、MCP 包装层和固定样本回归可以跑通。阶段五用于补齐真实项目可用前的缺口；完成前不能把当前状态视为真实项目 MVP 验收完成。
+
+### 任务 11：固定 ASGI 入口与运行配置加载
+
+**说明：** 提供面向长期运行 HTTP 服务的固定 ASGI 入口，并集中加载数据库、日志、embedding provider 和运行环境配置。
+
+**验收标准：**
+
+- [ ] 仓库提供稳定的 ASGI app 导入路径，用于 `uvicorn` 或同类 ASGI server 启动。
+- [ ] 配置加载器可以读取 `ACP_DATABASE_URL`、embedding provider 配置和必要运行参数。
+- [ ] 配置缺失或格式错误时返回明确异常和日志，不在启动后静默失败。
+
+**验证方式：**
+
+- [ ] 本地通过固定 ASGI 入口启动 Context API。
+- [ ] 使用真实 PostgreSQL / pgvector 连接执行 `/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context` 的冒烟验证。
+- [ ] 缺失关键配置时有可定位错误信息。
+
+**依赖：** 任务 8、任务 9
+
+**预估范围：** 中
+
+### 任务 12：外部 EmbeddingProvider 与批量 embedding 写入
+
+**说明：** 接入独立外部 EmbeddingProvider，为离线索引结果批量生成 embedding，并写入 `indexed_items.embedding`。
+
+**验收标准：**
+
+- [ ] 支持通过配置指定 embedding provider 的 `base_url`、`api_key`、`model`、`dimension` 和 `batch_size`。
+- [ ] 批量写入流程能为 Java、SQL、Markdown 三类索引项生成并保存 embedding。
+- [ ] embedding 维度与 pgvector 字段不匹配时明确失败，提示需要重建索引或调整配置。
+- [ ] provider 调用失败时输出必要日志，便于定位请求失败、限流或模型配置错误。
+
+**验证方式：**
+
+- [ ] 使用脱敏样本完成一次离线索引、embedding 生成和落库验证。
+- [ ] 单元测试覆盖配置校验、维度不匹配和 provider 失败路径。
+- [ ] 集成验证确认查询侧能使用真实生成的 query embedding 和 item embedding。
+
+**依赖：** 任务 2、任务 3、任务 4、任务 5、任务 11
+
+**预估范围：** 中
+
+### 任务 13：数据库侧 pgvector 相似度排序
+
+**说明：** 将向量相似度排序下推到 PostgreSQL / pgvector，避免应用侧全量拉取候选后计算余弦相似度。
+
+**验收标准：**
+
+- [ ] repository 层支持基于 query embedding 的 pgvector 相似度查询。
+- [ ] 混合检索仍保留关键词分数、向量分数、结构化过滤和统一 `SearchResult`。
+- [ ] `limit` 和结构化过滤在数据库查询阶段生效，避免无界候选扫描。
+- [ ] SQLite 测试路径保留轻量替代实现，不阻塞单元测试。
+
+**验证方式：**
+
+- [ ] 单元测试覆盖排序、过滤、空 embedding 和维度异常路径。
+- [ ] PostgreSQL / pgvector 集成验证确认相似度排序来自数据库查询。
+- [ ] 固定评测集回归指标不低于阶段四结果。
+
+**依赖：** 任务 6、任务 12
+
+**预估范围：** 中
+
+### 任务 14：真实脱敏 Java 项目索引库召回评测
+
+**说明：** 选择一个真实脱敏 Java 项目，完成 Java、SQL、Markdown 离线索引、embedding 写入和 `build-task-context` 召回评测。
+
+**验收标准：**
+
+- [ ] 真实评测语料来源已确认并完成脱敏，不写入真实企业内部标识。
+- [ ] 离线索引覆盖真实项目中的 Java、SQL 和 Markdown 资产。
+- [ ] 评测样本基于真实工程任务编写，并标注期望命中来源和明显无关判定规则。
+- [ ] Top5 命中率、Top10 明显无关结果数量和来源引用完整率达到 MVP 成功标准。
+
+**验证方式：**
+
+- [ ] 对真实脱敏项目执行完整离线索引和 embedding 写入。
+- [ ] 运行固定评测脚本并输出通过 / 失败、失败样本详情和关键指标。
+- [ ] 抽查 `build-task-context` 返回的来源引用可以定位到真实脱敏项目文件、行号、表或文档章节。
+
+**依赖：** 任务 11、任务 12、任务 13
+
+**预估范围：** 中
+
+### 检查点：真实可用 MVP 收口
+
+- [ ] Context API 可以通过固定 ASGI 入口长期运行。
+- [ ] 真实索引流程可以生成并保存 embedding。
+- [ ] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
+- [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
+
 ## 风险与应对
 
 | 风险 | 影响 | 应对 |
