@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段三已完成、阶段四待实施状态。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器和阶段三检索 / Context API / 任务上下文构建代码。
+项目处于 MVP 阶段四已完成、后续可进入真实语料评测和 EmbeddingProvider 接入状态。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码和阶段四 MCP 包装层 / 固定评测回归脚本。
 
 已实现范围：
 
@@ -20,14 +20,15 @@
 - Context API：提供 `search-code`、`search-db-schema`、`search-doc` 三类检索接口。
 - `build-task-context`：聚合代码、表结构、文档和相似实现，并在上下文不足时返回 `missing_context` 与 `risks`。
 - 阶段三测试与运行时验证脚本，覆盖接口响应、日志、错误路径和真实数据库写读检索链路。
+- MCP 包装层：基于 MCP Python SDK `FastMCP` 暴露 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context` 对应工具，包装层只调用 Context API。
+- 固定评测集与回归脚本：包含 10 个脱敏半真实工程任务样本，可计算 Top5 命中率、Top10 明显无关结果数量和来源引用完整率。
 
 尚未实现范围：
 
 - 面向部署的固定 ASGI 入口和运行配置加载器。
 - 外部 EmbeddingProvider 调用与批量 embedding 写入流程。
 - 数据库侧 pgvector 相似度排序。
-- MCP 包装层。
-- 固定评测集与回归脚本。
+- 基于真实脱敏 Java 项目索引库的召回评测。
 
 ## 文档导航
 
@@ -39,7 +40,9 @@
 | [MVP 实施计划](docs/planning/mvp-implementation-plan.md) | 说明依赖顺序、任务拆分、验收与验证 |
 | [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
 | [阶段三实际验证记录](docs/planning/phase-3-verification.md) | 记录核心检索流程、接口和真实数据库验证结果 |
+| [阶段四实际验证记录](docs/planning/phase-4-verification.md) | 记录 MCP 接入、固定评测集和回归脚本验证结果 |
 | [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
+| [MVP 固定评测样本](docs/evaluation/mvp-evaluation-samples.json) | 保存阶段四脱敏半真实任务样本 |
 | [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
 | [ADR-002: Hybrid Search With PostgreSQL pgvector](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | 记录检索与存储选型决策 |
 | [ADR-003: Python FastAPI MVP Application Stack](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | 记录 Python 应用栈、解析器、LLM 和 embedding 边界决策 |
@@ -141,3 +144,28 @@ uv run alembic upgrade head
 ```
 
 阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。当前混合检索在应用侧计算关键词分数和向量余弦相似度；仍未实现外部 EmbeddingProvider 调用和数据库侧 pgvector 相似度排序，验证脚本使用固定测试向量写入 `embedding` 字段。
+
+MCP 包装层验证：
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test pytest tests/test_mcp_server.py
+```
+
+固定评测集回归：
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test python scripts/run_mvp_evaluation.py
+```
+
+当前阶段四验证结果：
+
+- `uv run --extra test pytest tests/test_mcp_server.py`：`4 passed`
+- `uv run --extra test pytest tests/test_evaluation.py`：`2 passed`
+- `uv run --extra test pytest`：`26 passed`
+- `uv run --extra test python scripts/run_mvp_evaluation.py`：`sample_count=10`，`passed=true`，`top5_hit_rate=1.0`，`top10_irrelevant_result_count=0`，`source_citation_completeness=1.0`
+
+MCP server 默认通过 `acp-mcp-server` 启动，并调用 `http://127.0.0.1:8000` 上的 Context API；可以用 `ACP_CONTEXT_API_BASE_URL` 覆盖目标地址。由于仓库尚未提供固定 ASGI 部署入口，长期运行 HTTP 服务前仍需先补应用装配层。

@@ -1,0 +1,159 @@
+[
+  {
+    "id": "task-001",
+    "task": "payment message build",
+    "expected_hits": [
+      {
+        "source_type": "code",
+        "path": "src/main/java/example/PaymentMessageBuilder.java",
+        "symbol": "PaymentMessageBuilder.build"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Only account query or invoice export implementations are irrelevant to payment message generation."
+    ],
+    "notes": "Semi-real desensitized payment integration task."
+  },
+  {
+    "id": "task-002",
+    "task": "payment order status amount",
+    "expected_hits": [
+      {
+        "source_type": "db_schema",
+        "table": "payment_order"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Code-only matches without payment_order schema are not enough for this sample."
+    ],
+    "notes": "Schema-oriented payment task."
+  },
+  {
+    "id": "task-003",
+    "task": "payment integration message generation",
+    "expected_hits": [
+      {
+        "source_type": "doc",
+        "path": "docs/payment-integration.md",
+        "heading_path": "Payment Integration > Message Generation"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "A table-only result is irrelevant if it does not include payment integration constraints."
+    ],
+    "notes": "Documentation-oriented payment task."
+  },
+  {
+    "id": "task-004",
+    "task": "refund message build",
+    "expected_hits": [
+      {
+        "source_type": "code",
+        "path": "src/main/java/example/RefundMessageBuilder.java",
+        "symbol": "RefundMessageBuilder.build"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Payment-only message builders are unrelated unless refund behavior is mentioned."
+    ],
+    "notes": "Similar implementation lookup for refund flow."
+  },
+  {
+    "id": "task-005",
+    "task": "refund order status reason",
+    "expected_hits": [
+      {
+        "source_type": "db_schema",
+        "table": "refund_order"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Payment order status is irrelevant when refund reason fields are required."
+    ],
+    "notes": "Refund schema lookup."
+  },
+  {
+    "id": "task-006",
+    "task": "risk rule evaluate order amount",
+    "expected_hits": [
+      {
+        "source_type": "code",
+        "path": "src/main/java/example/RiskRuleEngine.java",
+        "symbol": "RiskRuleEngine.evaluate"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Plain payment message construction is irrelevant without risk rule evaluation."
+    ],
+    "notes": "Risk rule code lookup."
+  },
+  {
+    "id": "task-007",
+    "task": "risk event schema decision reason",
+    "expected_hits": [
+      {
+        "source_type": "db_schema",
+        "table": "risk_event"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Customer profile and invoice tables are irrelevant to risk event persistence."
+    ],
+    "notes": "Risk schema lookup."
+  },
+  {
+    "id": "task-008",
+    "task": "customer profile update",
+    "expected_hits": [
+      {
+        "source_type": "code",
+        "path": "src/main/java/example/CustomerProfileService.java",
+        "symbol": "CustomerProfileService.update"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Payment, refund, and risk flows are irrelevant to customer profile updates."
+    ],
+    "notes": "Customer code lookup."
+  },
+  {
+    "id": "task-009",
+    "task": "customer profile document update rule",
+    "expected_hits": [
+      {
+        "source_type": "doc",
+        "path": "docs/customer-profile.md",
+        "heading_path": "Customer Profile > Update Rule"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Code matches without the document update rule do not satisfy this sample."
+    ],
+    "notes": "Customer document lookup."
+  },
+  {
+    "id": "task-010",
+    "task": "invoice export status",
+    "expected_hits": [
+      {
+        "source_type": "code",
+        "path": "src/main/java/example/InvoiceExportService.java",
+        "symbol": "InvoiceExportService.export"
+      }
+    ],
+    "irrelevant_result_ids": [],
+    "irrelevant_rules": [
+      "Payment or refund message builders are irrelevant to invoice export status."
+    ],
+    "notes": "Invoice code lookup."
+  }
+]
