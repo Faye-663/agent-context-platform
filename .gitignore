@@ -21,6 +21,9 @@ Thumbs.db
 # Python local environment, caches, and build outputs
 /.venv/
 /venv/
+/.uv-cache/
+/.uv-python/
+/.local/
 __pycache__/
 *.py[cod]
 *$py.class

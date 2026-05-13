@@ -4,7 +4,23 @@
 
 ## 当前阶段
 
-项目处于 MVP 设计与实现准备阶段。当前仓库只沉淀需求、架构、接口、实施计划、评测方案和关键决策记录，不提供运行命令，也不声明尚未实现的能力。
+项目处于 MVP 阶段一基础能力实现中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型和存储迁移代码。
+
+已实现范围：
+
+- 公共 Pydantic 模型：`IndexedItem`、`SourceCitation`、`SearchResult`、`TaskContext`。
+- SQLAlchemy 存储模型与 `IndexedItemRepository`。
+- Alembic 初始迁移，包含 `indexed_items` 表和 PostgreSQL `vector` 扩展。
+- 阶段一单元测试，覆盖三类来源引用、JSON 序列化、存储读写和 pgvector 字段声明。
+
+尚未实现范围：
+
+- Java / SQL / Markdown 离线索引器。
+- Hybrid Search。
+- Context API HTTP 接口。
+- `build-task-context` 聚合流程。
+- MCP 包装层。
+- 固定评测集与回归脚本。
 
 ## 文档导航
 
@@ -76,3 +92,34 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 - 所有返回结果必须包含来源引用。
 
 详细方案见 [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md)。
+
+## 本地验证
+
+阶段一单元测试：
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test pytest
+```
+
+PostgreSQL 迁移使用 `ACP_DATABASE_URL` 指定数据库连接：
+
+```powershell
+$env:ACP_DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/agent_context_platform"
+uv run alembic upgrade head
+```
+
+当前开发机已验证过一套隔离 PostgreSQL / pgvector 环境：
+
+```powershell
+$toolRoot = "D:\Code\ACPTools"
+$env:PIXI_HOME = Join-Path $toolRoot "pixi-home"
+$env:PIXI_CACHE_DIR = Join-Path $toolRoot "pixi-cache"
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
+
+& "$toolRoot\pixi.exe" run --manifest-path "$toolRoot\pg-pixi\pixi.toml" pg_ctl -D "$toolRoot\pg-data" -l "$toolRoot\postgres.log" -o "-p 55432" start
+uv run alembic upgrade head
+```
+
+本阶段没有硬编码 embedding 维度，因为具体 EmbeddingProvider、模型名和向量维度仍在实施计划的待确认问题中。
