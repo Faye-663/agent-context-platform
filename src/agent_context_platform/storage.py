@@ -136,6 +136,37 @@ class IndexedItemRepository:
         records = self.session.scalars(statement.order_by(IndexedItemRecord.id)).all()
         return [record.to_indexed_item() for record in records]
 
+    def list_with_embeddings(
+        self,
+        *,
+        asset_type: AssetType | None = None,
+        path_prefix: str | None = None,
+        language: str | None = None,
+        symbol_types: Sequence[str] | None = None,
+        table: str | None = None,
+    ) -> list[tuple[IndexedItem, list[float] | None]]:
+        # 检索层需要同时拿到模型对象和 embedding，避免绕过统一的来源引用校验。
+        statement = select(IndexedItemRecord)
+        if asset_type is not None:
+            statement = statement.where(IndexedItemRecord.asset_type == asset_type.value)
+        if path_prefix is not None:
+            statement = statement.where(IndexedItemRecord.path.startswith(path_prefix))
+        if language is not None:
+            statement = statement.where(IndexedItemRecord.language == language)
+        if symbol_types:
+            statement = statement.where(IndexedItemRecord.symbol_type.in_(symbol_types))
+        if table is not None:
+            statement = statement.where(IndexedItemRecord.table_name == table)
+
+        records = self.session.scalars(statement.order_by(IndexedItemRecord.id)).all()
+        return [
+            (
+                record.to_indexed_item(),
+                list(record.embedding) if record.embedding is not None else None,
+            )
+            for record in records
+        ]
+
 
 def make_engine(database_url: str, *, echo: bool = False) -> Engine:
     return create_engine(database_url, echo=echo, future=True)
