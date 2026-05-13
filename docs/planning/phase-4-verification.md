@@ -25,6 +25,14 @@ uv run --extra test pytest tests/test_mcp_server.py
 4 passed
 ```
 
+覆盖点：
+
+- `ContextApiToolClient.build_task_context()` 会按 `/build-task-context` HTTP 契约发起请求。
+- `ContextApiError` 会保留 Context API 返回的错误码和 message。
+- 非 JSON 错误响应会转换成 `context_api_error`。
+- `FastMCP.list_tools()` 能看到 `search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
+- `FastMCP.call_tool("build_task_context", ...)` 能实际触发 Context API client 调用。
+
 新增评测计算测试：
 
 ```powershell

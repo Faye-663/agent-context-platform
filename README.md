@@ -122,7 +122,7 @@ uv run --extra test pytest
 - 真实 PostgreSQL / pgvector 验证：在 `ACP_DATABASE_URL=postgresql+psycopg://postgres@localhost:55432/agent_context_platform` 下执行迁移与运行时验证通过。
 - 验证记录见 [阶段三实际验证记录](docs/planning/phase-3-verification.md)。
 
-阶段三当前通过 `create_app(search_service)` 创建 FastAPI app，用于测试、脚本验证和后续 MCP 包装层调用。仓库暂未提供固定的 `agent_context_platform.api:app` 部署入口；如果需要启动长期运行的 HTTP 服务，应先补运行配置和应用装配层。
+当前通过 `create_app(search_service)` 创建 FastAPI app，用于测试、脚本验证和 MCP 包装层背后的 Context API 服务。仓库暂未提供固定的 `agent_context_platform.api:app` 部署入口；如果需要启动长期运行的 HTTP 服务，应先补运行配置和应用装配层。
 
 PostgreSQL 迁移使用 `ACP_DATABASE_URL` 指定数据库连接：
 

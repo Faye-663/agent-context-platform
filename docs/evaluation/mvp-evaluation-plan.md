@@ -42,6 +42,9 @@ MVP 评测目标是验证 agent-context-platform 是否能为 Coding Agent 返�
       "heading_path": "Payment Integration > Message Generation"
     }
   ],
+  "irrelevant_result_ids": [
+    "code:example:AccountQueryService.query"
+  ],
   "irrelevant_rules": [
     "与支付报文无关的账户查询实现",
     "只包含同名词但不属于当前业务链路的测试工具"
@@ -54,6 +57,7 @@ MVP 评测目标是验证 agent-context-platform 是否能为 Coding Agent 返�
 
 - 不写入真实企业内部项目名、表名或敏感标识。
 - `expected_hits` 必须尽量使用来源引用，而不是自然语言描述。
+- `irrelevant_rules` 记录人工判定规则；`irrelevant_result_ids` 用于回归脚本做可重复统计。
 - 如果一个任务只验证单资产能力，也必须说明不要求的资产类型。
 
 ## 指标
@@ -124,6 +128,8 @@ MVP 目标：
 
 每次检索策略、索引器、Context Builder 变更后运行评测。
 
+阶段四已落地的固定评测样本保存在 `docs/evaluation/mvp-evaluation-samples.json`，回归脚本为 `scripts/run_mvp_evaluation.py`。
+
 流程：
 
 ```text
@@ -136,6 +142,14 @@ MVP 目标：
 计算 Top5 命中率、Top10 无关结果、来源引用完整率
     ↓
 输出失败样本详情
+```
+
+本地运行：
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test python scripts/run_mvp_evaluation.py
 ```
 
 评测输出至少包含：
