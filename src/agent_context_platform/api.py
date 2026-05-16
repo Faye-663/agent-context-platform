@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 from uuid import uuid4
 
@@ -17,6 +19,7 @@ from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchServ
 
 
 logger = logging.getLogger(__name__)
+SearchServiceScope = Callable[[], AbstractContextManager[HybridSearchService]]
 
 
 class SearchFilters(BaseModel):
@@ -41,9 +44,20 @@ class BuildTaskContextRequest(BaseModel):
     request_id: str | None = None
 
 
-def create_app(search_service: HybridSearchService) -> FastAPI:
+def create_app(
+    search_service: HybridSearchService | None = None,
+    *,
+    search_service_scope: SearchServiceScope | None = None,
+) -> FastAPI:
+    if search_service is None and search_service_scope is None:
+        raise ValueError("必须提供 search_service 或 search_service_scope。")
+    if search_service is not None and search_service_scope is not None:
+        raise ValueError("search_service 与 search_service_scope 只能二选一。")
+    if search_service_scope is None:
+        assert search_service is not None
+        search_service_scope = lambda: nullcontext(search_service)
+
     app = FastAPI(title="agent-context-platform")
-    context_builder = TaskContextBuilder(search_service)
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(
@@ -53,45 +67,52 @@ def create_app(search_service: HybridSearchService) -> FastAPI:
 
     @app.post("/search-code")
     def search_code(request: SearchRequest) -> dict[str, list[dict[str, Any]]]:
-        return _search_endpoint(
-            api_name="search-code",
-            asset_type=AssetType.CODE,
-            request=request,
-            search_service=search_service,
-        )
+        with search_service_scope() as scoped_search_service:
+            return _search_endpoint(
+                api_name="search-code",
+                asset_type=AssetType.CODE,
+                request=request,
+                search_service=scoped_search_service,
+            )
 
     @app.post("/search-db-schema")
     def search_db_schema(request: SearchRequest) -> dict[str, list[dict[str, Any]]]:
-        return _search_endpoint(
-            api_name="search-db-schema",
-            asset_type=AssetType.DB_SCHEMA,
-            request=request,
-            search_service=search_service,
-        )
+        with search_service_scope() as scoped_search_service:
+            return _search_endpoint(
+                api_name="search-db-schema",
+                asset_type=AssetType.DB_SCHEMA,
+                request=request,
+                search_service=scoped_search_service,
+            )
 
     @app.post("/search-doc")
     def search_doc(request: SearchRequest) -> dict[str, list[dict[str, Any]]]:
-        return _search_endpoint(
-            api_name="search-doc",
-            asset_type=AssetType.DOC,
-            request=request,
-            search_service=search_service,
-        )
+        with search_service_scope() as scoped_search_service:
+            return _search_endpoint(
+                api_name="search-doc",
+                asset_type=AssetType.DOC,
+                request=request,
+                search_service=scoped_search_service,
+            )
 
     @app.post("/build-task-context")
     def build_task_context(request: BuildTaskContextRequest) -> dict[str, Any]:
         started = time.perf_counter()
         request_id = request.request_id or str(uuid4())
         try:
-            context = context_builder.build(
-                task=request.task,
-                limits=request.limits,
-                constraints=request.constraints,
-            )
+            with search_service_scope() as scoped_search_service:
+                context = TaskContextBuilder(scoped_search_service).build(
+                    task=request.task,
+                    limits=request.limits,
+                    constraints=request.constraints,
+                )
         except ValueError as exc:
             return _error_response("invalid_request", str(exc))
         except SQLAlchemyError as exc:
-            logger.exception("request_id=%s api=build-task-context error_code=storage_unavailable", request_id)
+            logger.exception(
+                "request_id=%s api=build-task-context error_code=storage_unavailable",
+                request_id,
+            )
             return _error_response("storage_unavailable", str(exc))
 
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -128,7 +149,11 @@ def _search_endpoint(
     except ValueError as exc:
         return _error_response("invalid_request", str(exc))
     except SQLAlchemyError as exc:
-        logger.exception("request_id=%s api=%s error_code=storage_unavailable", request_id, api_name)
+        logger.exception(
+            "request_id=%s api=%s error_code=storage_unavailable",
+            request_id,
+            api_name,
+        )
         return _error_response("storage_unavailable", str(exc))
 
     _log_search(

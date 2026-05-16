@@ -258,15 +258,15 @@
 
 **验收标准：**
 
-- [ ] 仓库提供稳定的 ASGI app 导入路径，用于 `uvicorn` 或同类 ASGI server 启动。
-- [ ] 配置加载器可以读取 `ACP_DATABASE_URL`、embedding provider 配置和必要运行参数。
-- [ ] 配置缺失或格式错误时返回明确异常和日志，不在启动后静默失败。
+- [x] 仓库提供稳定的 ASGI app 导入路径，用于 `uvicorn` 或同类 ASGI server 启动。
+- [x] 配置加载器可以读取 `ACP_DATABASE_URL`、embedding provider 配置和必要运行参数。
+- [x] 配置缺失或格式错误时返回明确异常和日志，不在启动后静默失败。
 
 **验证方式：**
 
-- [ ] 本地通过固定 ASGI 入口启动 Context API。
-- [ ] 使用真实 PostgreSQL / pgvector 连接执行 `/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context` 的冒烟验证。
-- [ ] 缺失关键配置时有可定位错误信息。
+- [x] 本地通过固定 ASGI 入口启动 Context API。
+- [x] 使用真实 PostgreSQL / pgvector 连接执行 `/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context` 的冒烟验证。
+- [x] 缺失关键配置时有可定位错误信息。
 
 **依赖：** 任务 8、任务 9
 
@@ -337,7 +337,7 @@
 
 ### 检查点：真实可用 MVP 收口
 
-- [ ] Context API 可以通过固定 ASGI 入口长期运行。
+- [x] Context API 可以通过固定 ASGI 入口长期运行。
 - [ ] 真实索引流程可以生成并保存 embedding。
 - [ ] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
 - [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
@@ -357,4 +357,3 @@
 - 真实评测语料使用哪个脱敏 Java 项目。
 - embedding 首版具体服务、模型名、向量维度和 batch size。
 - OpenAI-compatible 外部 LLM 的 provider、模型名和配置方式。
-- 面向部署的固定 ASGI 入口和运行配置加载方式。

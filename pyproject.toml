@@ -16,6 +16,7 @@ dependencies = [
     "sqlglot>=28.0.0",
     "tree-sitter>=0.25.0",
     "tree-sitter-java>=0.23.0",
+    "uvicorn>=0.46.0",
 ]
 
 [project.scripts]

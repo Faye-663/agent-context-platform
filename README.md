@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段四已完成、后续需要进入真实可用 MVP 收口状态。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码和阶段四 MCP 包装层 / 固定评测回归脚本。
+项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力。
 
 已实现范围：
 
@@ -22,10 +22,10 @@
 - 阶段三测试与运行时验证脚本，覆盖接口响应、日志、错误路径和真实数据库写读检索链路。
 - MCP 包装层：基于 MCP Python SDK `FastMCP` 暴露 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context` 对应工具，包装层只调用 Context API。
 - 固定评测集与回归脚本：包含 10 个脱敏半真实工程任务样本，可计算 Top5 命中率、Top10 明显无关结果数量和来源引用完整率。
+- 固定 ASGI 入口与运行配置加载：提供 `agent_context_platform.asgi:app`、`ACP_DATABASE_URL` 运行配置和 embedding provider 配置校验。
 
 尚不满足真实可用 MVP 的项：
 
-- 面向部署的固定 ASGI 入口和运行配置加载器。
 - 外部 EmbeddingProvider 调用与批量 embedding 写入流程。
 - 数据库侧 pgvector 相似度排序。
 - 基于真实脱敏 Java 项目索引库的召回评测。
@@ -118,12 +118,16 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 ## 配置说明
 
-仓库提供 [`.env.example`](.env.example) 作为配置样例。当前代码**不会自动加载 `.env` 文件**，因此复制样例后，仍需要在当前 PowerShell 进程中显式设置环境变量。
+仓库提供 [`.env.example`](.env.example) 作为配置样例。应用本身只读取进程环境，不会自动加载 `.env` 文件；本地启动时可以让 Uvicorn 通过 `--env-file .env` 把样例文件加载到进程环境中。
 
 | 变量 | 用途 | 默认行为 |
 |---|---|---|
-| `ACP_DATABASE_URL` | 指定 Alembic 迁移和真实 PostgreSQL 验证使用的数据库连接 | 未设置时，Alembic 使用 `alembic.ini` 中的默认连接；运行时验证脚本会回退到 SQLite 内存库 |
-| `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 未设置时默认使用 `http://127.0.0.1:8000` |
+| `ACP_DATABASE_URL` | 指定 Alembic 迁移和长期运行 Context API 使用的数据库连接 | 固定 ASGI 入口启动时必填 |
+| `ACP_ENV` | 标识运行环境 | 默认 `local` |
+| `ACP_LOG_LEVEL` | 指定应用日志级别 | 默认 `INFO` |
+| `ACP_SQL_ECHO` | 控制 SQLAlchemy 是否输出 SQL 日志 | 默认 `false` |
+| `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
+| `ACP_EMBEDDING_*` | 为后续独立 embedding provider 预留的配置组 | 如果填写其中任意一项，则必须整组填写 |
 
 ## 快速开始
 
@@ -133,7 +137,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    Copy-Item .env.example .env
    ```
 
-2. 在当前 PowerShell 进程中设置依赖缓存和真实数据库连接：
+2. 在当前 PowerShell 进程中设置依赖缓存，并按需覆盖本地配置：
 
    ```powershell
    $env:UV_CACHE_DIR = ".uv-cache"
@@ -159,7 +163,13 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    uv run --extra test pytest
    ```
 
-6. 如果已经有可访问的 Context API 服务，再启动 MCP server wrapper：
+6. 启动长期运行的 Context API：
+
+   ```powershell
+   uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000 --env-file .env
+   ```
+
+7. 另开一个 PowerShell 终端，启动 MCP server wrapper：
 
    ```powershell
    $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
@@ -168,9 +178,9 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 ## 当前启动边界
 
-当前通过 `create_app(search_service)` 创建 FastAPI app，用于测试、脚本验证和 MCP 包装层背后的 Context API 服务。仓库暂未提供固定的 `agent_context_platform.api:app` 部署入口，因此当前还不能从仓库直接启动一个完整的、长期运行的 HTTP 服务；如果需要这条链路，应先补运行配置和应用装配层。
+固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
 
-MCP server 已可通过 `uv run acp-mcp-server` 启动，但它只是 Context API 的包装层；在没有可访问 Context API 服务时，工具调用仍会失败。
+MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前仍未完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
 
 ## 本地验证
 
@@ -180,6 +190,15 @@ MCP server 已可通过 `uv run acp-mcp-server` 启动，但它只是 Context AP
 - `uv run --extra test python scripts/verify_phase3_runtime.py`：通过 FastAPI app factory 实际调用 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context`。
 - 真实 PostgreSQL / pgvector 验证：在 `ACP_DATABASE_URL=postgresql+psycopg://postgres@localhost:55432/agent_context_platform` 下执行迁移与运行时验证通过。
 - 验证记录见 [阶段三实际验证记录](docs/planning/phase-3-verification.md)。
+
+固定 ASGI 入口验证：
+
+```powershell
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
+uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000
+```
+
+当前已完成真实 PostgreSQL / pgvector 冒烟验证：`/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context` 均通过固定 ASGI 入口返回预期结果。
 
 当前开发机已验证过一套隔离 PostgreSQL / pgvector 环境：
 
