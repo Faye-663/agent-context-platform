@@ -107,15 +107,72 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 详细方案见 [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md)。
 
+## 运行依赖
+
+- Python `>= 3.12`
+- [`uv`](https://docs.astral.sh/uv/)：用于安装依赖和执行项目命令
+- PostgreSQL：用于真实数据库验证
+- `pgvector` extension：用于 `indexed_items.embedding` 字段和后续向量检索能力
+
+当前文档默认使用 Windows / PowerShell。`pyproject.toml` 已声明项目依赖，`uv.lock` 固定了当前锁定版本。
+
+## 配置说明
+
+仓库提供 [`.env.example`](.env.example) 作为配置样例。当前代码**不会自动加载 `.env` 文件**，因此复制样例后，仍需要在当前 PowerShell 进程中显式设置环境变量。
+
+| 变量 | 用途 | 默认行为 |
+|---|---|---|
+| `ACP_DATABASE_URL` | 指定 Alembic 迁移和真实 PostgreSQL 验证使用的数据库连接 | 未设置时，Alembic 使用 `alembic.ini` 中的默认连接；运行时验证脚本会回退到 SQLite 内存库 |
+| `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 未设置时默认使用 `http://127.0.0.1:8000` |
+
+## 快速开始
+
+1. 复制配置样例，作为本地配置参考：
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. 在当前 PowerShell 进程中设置依赖缓存和真实数据库连接：
+
+   ```powershell
+   $env:UV_CACHE_DIR = ".uv-cache"
+   $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+   $env:ACP_DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/agent_context_platform"
+   ```
+
+3. 安装项目依赖：
+
+   ```powershell
+   uv sync --extra test
+   ```
+
+4. 执行数据库迁移：
+
+   ```powershell
+   uv run alembic upgrade head
+   ```
+
+5. 运行完整测试：
+
+   ```powershell
+   uv run --extra test pytest
+   ```
+
+6. 如果已经有可访问的 Context API 服务，再启动 MCP server wrapper：
+
+   ```powershell
+   $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
+   uv run acp-mcp-server
+   ```
+
+## 当前启动边界
+
+当前通过 `create_app(search_service)` 创建 FastAPI app，用于测试、脚本验证和 MCP 包装层背后的 Context API 服务。仓库暂未提供固定的 `agent_context_platform.api:app` 部署入口，因此当前还不能从仓库直接启动一个完整的、长期运行的 HTTP 服务；如果需要这条链路，应先补运行配置和应用装配层。
+
+MCP server 已可通过 `uv run acp-mcp-server` 启动，但它只是 Context API 的包装层；在没有可访问 Context API 服务时，工具调用仍会失败。
+
 ## 本地验证
-
-单元测试：
-
-```powershell
-$env:UV_CACHE_DIR = ".uv-cache"
-$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run --extra test pytest
-```
 
 当前阶段三验证结果：
 
@@ -123,15 +180,6 @@ uv run --extra test pytest
 - `uv run --extra test python scripts/verify_phase3_runtime.py`：通过 FastAPI app factory 实际调用 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context`。
 - 真实 PostgreSQL / pgvector 验证：在 `ACP_DATABASE_URL=postgresql+psycopg://postgres@localhost:55432/agent_context_platform` 下执行迁移与运行时验证通过。
 - 验证记录见 [阶段三实际验证记录](docs/planning/phase-3-verification.md)。
-
-当前通过 `create_app(search_service)` 创建 FastAPI app，用于测试、脚本验证和 MCP 包装层背后的 Context API 服务。仓库暂未提供固定的 `agent_context_platform.api:app` 部署入口；如果需要启动长期运行的 HTTP 服务，应先补运行配置和应用装配层。
-
-PostgreSQL 迁移使用 `ACP_DATABASE_URL` 指定数据库连接：
-
-```powershell
-$env:ACP_DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/agent_context_platform"
-uv run alembic upgrade head
-```
 
 当前开发机已验证过一套隔离 PostgreSQL / pgvector 环境：
 
@@ -169,5 +217,3 @@ uv run --extra test python scripts/run_mvp_evaluation.py
 - `uv run --extra test pytest tests/test_evaluation.py`：`2 passed`
 - `uv run --extra test pytest`：`26 passed`
 - `uv run --extra test python scripts/run_mvp_evaluation.py`：`sample_count=10`，`passed=true`，`top5_hit_rate=1.0`，`top10_irrelevant_result_count=0`，`source_citation_completeness=1.0`
-
-MCP server 默认通过 `acp-mcp-server` 启动，并调用 `http://127.0.0.1:8000` 上的 Context API；可以用 `ACP_CONTEXT_API_BASE_URL` 覆盖目标地址。由于仓库尚未提供固定 ASGI 部署入口，长期运行 HTTP 服务前仍需先补应用装配层。
