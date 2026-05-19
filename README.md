@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力。
+项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope embedding provider 与批量 embedding 写入能力。
 
 已实现范围：
 
@@ -23,10 +23,12 @@
 - MCP 包装层：基于 MCP Python SDK `FastMCP` 暴露 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context` 对应工具，包装层只调用 Context API。
 - 固定评测集与回归脚本：包含 10 个脱敏半真实工程任务样本，可计算 Top5 命中率、Top10 明显无关结果数量和来源引用完整率。
 - 固定 ASGI 入口与运行配置加载：提供 `agent_context_platform.asgi:app`、`ACP_DATABASE_URL` 运行配置和 embedding provider 配置校验。
+- DashScope native EmbeddingProvider：通过 `ACP_EMBEDDING_*` 配置生成 query embedding 和 item embedding。
+- 多模型 embedding 存储：`item_embeddings` 按 `provider`、`model`、`dimension` 保存 embedding，避免把当前模型维度固定进 `indexed_items` 主表。
+- 批量 embedding 写入：支持把 Java、SQL、Markdown 三类离线索引结果生成 embedding 后落库。
 
 尚不满足真实可用 MVP 的项：
 
-- 外部 EmbeddingProvider 调用与批量 embedding 写入流程。
 - 数据库侧 pgvector 相似度排序。
 - 基于真实脱敏 Java 项目索引库的召回评测。
 
@@ -43,11 +45,13 @@
 | [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
 | [阶段三实际验证记录](docs/planning/phase-3-verification.md) | 记录核心检索流程、接口和真实数据库验证结果 |
 | [阶段四实际验证记录](docs/planning/phase-4-verification.md) | 记录 MCP 接入、固定评测集和回归脚本验证结果 |
+| [阶段五实际验证记录](docs/planning/phase-5-verification.md) | 记录 ASGI 入口、运行配置和 embedding provider 验证结果 |
 | [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
 | [MVP 固定评测样本](docs/evaluation/mvp-evaluation-samples.json) | 保存阶段四脱敏半真实任务样本 |
 | [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
 | [ADR-002: Hybrid Search With PostgreSQL pgvector](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | 记录检索与存储选型决策 |
 | [ADR-003: Python FastAPI MVP Application Stack](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | 记录 Python 应用栈、解析器、LLM 和 embedding 边界决策 |
+| [ADR-004: Model Scoped Embedding Storage](docs/decisions/ADR-004-model-scoped-embedding-storage.md) | 记录多 embedding model 兼容存储决策 |
 
 ## 核心目标
 
@@ -112,7 +116,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 - Python `>= 3.12`
 - [`uv`](https://docs.astral.sh/uv/)：用于安装依赖和执行项目命令
 - PostgreSQL：用于真实数据库验证
-- `pgvector` extension：用于 `indexed_items.embedding` 字段和后续向量检索能力
+- `pgvector` extension：用于 `item_embeddings.embedding` 字段和后续向量检索能力
 
 当前文档默认使用 Windows / PowerShell。`pyproject.toml` 已声明项目依赖，`uv.lock` 固定了当前锁定版本。
 
@@ -127,7 +131,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 | `ACP_LOG_LEVEL` | 指定应用日志级别 | 默认 `INFO` |
 | `ACP_SQL_ECHO` | 控制 SQLAlchemy 是否输出 SQL 日志 | 默认 `false` |
 | `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
-| `ACP_EMBEDDING_*` | 为后续独立 embedding provider 预留的配置组 | 如果填写其中任意一项，则必须整组填写 |
+| `ACP_EMBEDDING_*` | DashScope native embedding provider 配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数 |
 
 ## 快速开始
 
@@ -142,7 +146,8 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    ```powershell
    $env:UV_CACHE_DIR = ".uv-cache"
    $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-   $env:ACP_DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/agent_context_platform"
+$env:ACP_DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/agent_context_platform"
+$env:ACP_EMBEDDING_BATCH_SIZE = "10"
    ```
 
 3. 安装项目依赖：
@@ -180,7 +185,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
 
-MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前仍未完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
+MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用和批量 embedding 写入；数据库侧 pgvector 相似度排序仍属于任务 13。
 
 ## 本地验证
 
@@ -212,7 +217,7 @@ $env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_con
 uv run alembic upgrade head
 ```
 
-阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。当前混合检索在应用侧计算关键词分数和向量余弦相似度；仍未实现外部 EmbeddingProvider 调用和数据库侧 pgvector 相似度排序，验证脚本使用固定测试向量写入 `embedding` 字段。
+阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。阶段五任务 12 补充了 DashScope native provider、query embedding 自动生成和 item embedding 批量写入。当前混合检索仍在应用侧计算关键词分数和向量余弦相似度，数据库侧 pgvector 排序留给任务 13。
 
 MCP 包装层验证：
 

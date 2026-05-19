@@ -14,6 +14,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from agent_context_platform.context_builder import TaskContextBuilder
+from agent_context_platform.embeddings import (
+    EmbeddingDimensionError,
+    EmbeddingProviderError,
+)
 from agent_context_platform.models import AssetType, SearchResult
 from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
 
@@ -106,6 +110,12 @@ def create_app(
                     limits=request.limits,
                     constraints=request.constraints,
                 )
+        except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
+            logger.exception(
+                "request_id=%s api=build-task-context error_code=embedding_unavailable",
+                request_id,
+            )
+            return _error_response("embedding_unavailable", str(exc))
         except ValueError as exc:
             return _error_response("invalid_request", str(exc))
         except SQLAlchemyError as exc:
@@ -146,6 +156,13 @@ def _search_endpoint(
                 query_embedding=request.query_embedding,
             )
         )
+    except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
+        logger.exception(
+            "request_id=%s api=%s error_code=embedding_unavailable",
+            request_id,
+            api_name,
+        )
+        return _error_response("embedding_unavailable", str(exc))
     except ValueError as exc:
         return _error_response("invalid_request", str(exc))
     except SQLAlchemyError as exc:

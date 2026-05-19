@@ -9,6 +9,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "markdown-it-py" },
     { name = "mcp", extra = ["cli"] },
     { name = "pgvector" },
@@ -23,7 +24,6 @@ dependencies = [
 
 [package.optional-dependencies]
 test = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -31,7 +31,7 @@ test = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.0" },
     { name = "fastapi", specifier = ">=0.121.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "markdown-it-py", specifier = ">=4.0.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0.0" },
     { name = "pgvector", specifier = ">=0.4.0" },

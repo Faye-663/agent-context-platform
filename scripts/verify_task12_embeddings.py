@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+
+from sqlalchemy.orm import Session
+
+from agent_context_platform.embeddings import (
+    DashScopeEmbeddingProvider,
+    embed_and_save_items,
+)
+from agent_context_platform.indexers import (
+    index_java_source,
+    index_markdown_document,
+    index_sql_ddl,
+)
+from agent_context_platform.models import AssetType
+from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
+from agent_context_platform.runtime import load_runtime_settings
+from agent_context_platform.storage import IndexedItemRepository, make_engine
+
+
+def main() -> None:
+    args = _parse_args()
+    _load_env_file(args.env_file)
+    settings = load_runtime_settings()
+    if settings.embedding is None:
+        raise SystemExit("缺少 ACP_EMBEDDING_* 配置，无法验证任务 12。")
+
+    provider = DashScopeEmbeddingProvider(
+        base_url=settings.embedding.base_url,
+        api_key=settings.embedding.api_key,
+        model=settings.embedding.model,
+        dimension=settings.embedding.dimension,
+        batch_size=settings.embedding.batch_size,
+    )
+    engine = make_engine(settings.database_url, echo=settings.sql_echo)
+    items = _sample_items()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        saved_count = embed_and_save_items(repository, provider, items)
+        session.commit()
+
+        code_results = repository.list_with_embeddings(
+            asset_type=AssetType.CODE,
+            embedding_identity=provider.identity,
+        )
+        schema_results = repository.list_with_embeddings(
+            asset_type=AssetType.DB_SCHEMA,
+            embedding_identity=provider.identity,
+        )
+        doc_results = repository.list_with_embeddings(
+            asset_type=AssetType.DOC,
+            embedding_identity=provider.identity,
+        )
+        search_results = HybridSearchService(repository, provider).search(
+            HybridSearchQuery(
+                query="payment message build",
+                asset_type=AssetType.CODE,
+                limit=3,
+                filters={"language": "java"},
+            )
+        )
+
+    _assert_embeddings("code", code_results, settings.embedding.dimension)
+    _assert_embeddings("db_schema", schema_results, settings.embedding.dimension)
+    _assert_embeddings("doc", doc_results, settings.embedding.dimension)
+    if not search_results:
+        raise AssertionError("query embedding search returned no code results")
+    if (
+        not search_results[0].score_parts
+        or search_results[0].score_parts["vector"] <= 0
+    ):
+        raise AssertionError("query embedding search did not contribute vector score")
+
+    print("task12 embedding verification passed")
+    print(f"model={settings.embedding.model}")
+    print(f"dimension={settings.embedding.dimension}")
+    print(f"batch_size={settings.embedding.batch_size}")
+    print(f"saved_count={saved_count}")
+    print(
+        "embedding_counts="
+        f"code:{len(code_results)},db_schema:{len(schema_results)},doc:{len(doc_results)}"
+    )
+    print(
+        "top_code_result="
+        f"{search_results[0].item.id},vector={search_results[0].score_parts['vector']}"
+    )
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Verify task 12 DashScope embedding generation and storage."
+    )
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before reading runtime settings.",
+    )
+    return parser.parse_args()
+
+
+def _load_env_file(path: Path | None) -> None:
+    if path is None:
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", maxsplit=1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"'))
+
+
+def _sample_items():
+    java_items = index_java_source(
+        "src/main/java/example/Task12PaymentService.java",
+        """
+        class Task12PaymentService {
+            void buildPaymentMessage() {
+            }
+        }
+        """,
+    )
+    sql_items = index_sql_ddl(
+        "db/task12_payment.sql",
+        "CREATE TABLE task12_payment_order (id bigint, status varchar(20));",
+    )
+    doc_items = index_markdown_document(
+        "docs/task12-payment.md",
+        "# Task12 Payment Integration\n\nBuild payment messages for order events.",
+    )
+    return [java_items[0], sql_items[0], doc_items[0]]
+
+
+def _assert_embeddings(
+    name: str,
+    rows: list[tuple[object, list[float] | None]],
+    dimension: int,
+) -> None:
+    if not rows:
+        raise AssertionError(f"{name} embedding rows are empty")
+    for _item, embedding in rows:
+        if embedding is None:
+            raise AssertionError(f"{name} embedding is missing")
+        if len(embedding) != dimension:
+            raise AssertionError(
+                f"{name} embedding dimension mismatch: expected {dimension}, "
+                f"got {len(embedding)}"
+            )
+
+
+if __name__ == "__main__":
+    main()

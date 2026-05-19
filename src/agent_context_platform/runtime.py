@@ -11,6 +11,7 @@ from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import sessionmaker
 
 from agent_context_platform.api import create_app
+from agent_context_platform.embeddings import DashScopeEmbeddingProvider
 from agent_context_platform.retrieval import HybridSearchService
 from agent_context_platform.storage import IndexedItemRepository, make_engine
 
@@ -68,12 +69,24 @@ def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
         raise RuntimeConfigError(f"ACP_DATABASE_URL 格式错误：{exc}") from exc
 
     session_factory = sessionmaker(bind=engine)
+    embedding_provider = None
+    if resolved_settings.embedding is not None:
+        embedding_provider = DashScopeEmbeddingProvider(
+            base_url=resolved_settings.embedding.base_url,
+            api_key=resolved_settings.embedding.api_key,
+            model=resolved_settings.embedding.model,
+            dimension=resolved_settings.embedding.dimension,
+            batch_size=resolved_settings.embedding.batch_size,
+        )
 
     @contextmanager
     def search_service_scope() -> Iterator[HybridSearchService]:
         # 长期运行服务按请求创建 Session，避免把一个可变 Session 绑定到整个进程生命周期。
         with session_factory() as session:
-            yield HybridSearchService(IndexedItemRepository(session))
+            yield HybridSearchService(
+                IndexedItemRepository(session),
+                embedding_provider,
+            )
 
     app = create_app(search_service_scope=search_service_scope)
     app.state.engine = engine

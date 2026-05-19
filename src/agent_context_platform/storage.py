@@ -4,11 +4,20 @@ from collections.abc import Sequence
 from typing import Any
 
 from pgvector.sqlalchemy import VECTOR
-from sqlalchemy import JSON, String, Text, create_engine, select
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    JSON,
+    String,
+    Text,
+    create_engine,
+    select,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
+from agent_context_platform.embeddings import EmbeddingIdentity
 from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
 
 
@@ -31,7 +40,6 @@ class IndexedItemRecord(Base):
     item_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JsonType, default=dict
     )
-    embedding: Mapped[list[float] | None] = mapped_column(EmbeddingType, nullable=True)
 
     source_type: Mapped[str] = mapped_column(String(32), index=True)
     repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -47,9 +55,7 @@ class IndexedItemRecord(Base):
     symbol_type: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
 
     @classmethod
-    def from_indexed_item(
-        cls, item: IndexedItem, embedding: Sequence[float] | None = None
-    ) -> "IndexedItemRecord":
+    def from_indexed_item(cls, item: IndexedItem) -> "IndexedItemRecord":
         source = item.source
         metadata = dict(item.metadata)
         return cls(
@@ -59,7 +65,6 @@ class IndexedItemRecord(Base):
             content=item.content,
             summary=item.summary,
             item_metadata=metadata,
-            embedding=list(embedding) if embedding is not None else None,
             source_type=source.source_type.value,
             repo=source.repo,
             path=source.path,
@@ -96,16 +101,53 @@ class IndexedItemRecord(Base):
         )
 
 
+class ItemEmbeddingRecord(Base):
+    __tablename__ = "item_embeddings"
+    __table_args__ = (
+        CheckConstraint("dimension > 0", name="ck_item_embeddings_dimension_positive"),
+        CheckConstraint(
+            "embedding IS NULL OR vector_dims(embedding) = dimension",
+            name="ck_item_embeddings_vector_matches_dimension",
+        ).ddl_if(dialect="postgresql"),
+    )
+
+    item_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("indexed_items.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    provider: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model: Mapped[str] = mapped_column(String(255), primary_key=True)
+    dimension: Mapped[int] = mapped_column(primary_key=True)
+    embedding: Mapped[list[float]] = mapped_column(EmbeddingType, nullable=False)
+
+
 class IndexedItemRepository:
     def __init__(self, session: Session):
         self.session = session
 
     def save(
-        self, item: IndexedItem, embedding: Sequence[float] | None = None
+        self,
+        item: IndexedItem,
+        embedding: Sequence[float] | None = None,
+        embedding_identity: EmbeddingIdentity | None = None,
     ) -> IndexedItem:
-        record = IndexedItemRecord.from_indexed_item(item, embedding=embedding)
+        record = IndexedItemRecord.from_indexed_item(item)
         self.session.merge(record)
         self.session.flush()
+        if embedding is not None:
+            identity = embedding_identity or _manual_embedding_identity(embedding)
+            _validate_embedding_dimension(embedding, identity)
+            self.session.merge(
+                ItemEmbeddingRecord(
+                    item_id=item.id,
+                    provider=identity.provider,
+                    model=identity.model,
+                    dimension=identity.dimension,
+                    embedding=list(embedding),
+                )
+            )
+            self.session.flush()
         return record.to_indexed_item()
 
     def get(self, item_id: str) -> IndexedItem | None:
@@ -144,8 +186,9 @@ class IndexedItemRepository:
         language: str | None = None,
         symbol_types: Sequence[str] | None = None,
         table: str | None = None,
+        embedding_identity: EmbeddingIdentity | None = None,
     ) -> list[tuple[IndexedItem, list[float] | None]]:
-        # 检索层需要同时拿到模型对象和 embedding，避免绕过统一的来源引用校验。
+        # 检索层需要同时拿到模型对象和对应模型的 embedding，避免跨模型维度误比较。
         statement = select(IndexedItemRecord)
         if asset_type is not None:
             statement = statement.where(IndexedItemRecord.asset_type == asset_type.value)
@@ -162,10 +205,50 @@ class IndexedItemRepository:
         return [
             (
                 record.to_indexed_item(),
-                list(record.embedding) if record.embedding is not None else None,
+                self._find_embedding(record.id, embedding_identity),
             )
             for record in records
         ]
+
+    def _find_embedding(
+        self,
+        item_id: str,
+        embedding_identity: EmbeddingIdentity | None,
+    ) -> list[float] | None:
+        statement = select(ItemEmbeddingRecord).where(
+            ItemEmbeddingRecord.item_id == item_id
+        )
+        if embedding_identity is not None:
+            statement = statement.where(
+                ItemEmbeddingRecord.provider == embedding_identity.provider,
+                ItemEmbeddingRecord.model == embedding_identity.model,
+                ItemEmbeddingRecord.dimension == embedding_identity.dimension,
+            )
+        statement = statement.order_by(
+            ItemEmbeddingRecord.provider,
+            ItemEmbeddingRecord.model,
+            ItemEmbeddingRecord.dimension,
+        )
+        record = self.session.scalars(statement).first()
+        return list(record.embedding) if record is not None else None
+
+
+def _manual_embedding_identity(embedding: Sequence[float]) -> EmbeddingIdentity:
+    return EmbeddingIdentity(
+        provider="manual",
+        model=f"dimension-{len(embedding)}",
+        dimension=len(embedding),
+    )
+
+
+def _validate_embedding_dimension(
+    embedding: Sequence[float], identity: EmbeddingIdentity
+) -> None:
+    if len(embedding) != identity.dimension:
+        raise ValueError(
+            "embedding dimension mismatch: "
+            f"expected {identity.dimension}, got {len(embedding)}"
+        )
 
 
 def make_engine(database_url: str, *, echo: bool = False) -> Engine:
