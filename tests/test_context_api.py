@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from agent_context_platform.api import create_app
+from agent_context_platform.embeddings import (
+    EmbeddingIdentity,
+    EmbeddingProviderError,
+)
 from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
 from agent_context_platform.retrieval import HybridSearchService
 from agent_context_platform.storage import Base, IndexedItemRepository
@@ -204,3 +208,120 @@ def test_build_task_context_reports_partially_missing_context() -> None:
     assert payload["related_db_schema"]
     assert payload["related_docs"]
     assert payload["missing_context"] == ["code"]
+
+
+class QueryEmbeddingProvider:
+    identity = EmbeddingIdentity(provider="fake", model="query-model", dimension=3)
+    batch_size = 10
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[list[str]] = []
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if self.fail:
+            raise EmbeddingProviderError("provider unavailable")
+        self.calls.append(list(texts))
+        return [[0.0, 1.0, 0.0] for _text in texts]
+
+
+def test_search_generates_query_embedding_when_provider_is_configured() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    provider = QueryEmbeddingProvider()
+    repository.save(
+        IndexedItem(
+            id="code:InvoicePrinter.print",
+            asset_type=AssetType.CODE,
+            title="InvoicePrinter.print",
+            content="print invoice document",
+            summary="打印发票。",
+            metadata={"language": "java", "symbol_type": "method"},
+            source=SourceCitation(
+                source_type=SourceType.CODE,
+                path="src/main/java/example/InvoicePrinter.java",
+                start_line=5,
+                end_line=18,
+                symbol="InvoicePrinter.print",
+            ),
+        ),
+        embedding=[0.0, 1.0, 0.0],
+        embedding_identity=provider.identity,
+    )
+    session.commit()
+
+    client = TestClient(create_app(HybridSearchService(repository, provider)))
+    response = client.post("/search-code", json={"query": "unmatched text"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["results"][0]["source"]["symbol"] == "InvoicePrinter.print"
+    assert payload["results"][0]["score_parts"]["vector"] == 1.0
+    assert provider.calls == [["unmatched text"]]
+
+
+def test_explicit_query_embedding_skips_provider_call() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    provider = QueryEmbeddingProvider()
+    repository.save(
+        IndexedItem(
+            id="code:InvoicePrinter.print",
+            asset_type=AssetType.CODE,
+            title="InvoicePrinter.print",
+            content="print invoice document",
+            summary="打印发票。",
+            metadata={"language": "java", "symbol_type": "method"},
+            source=SourceCitation(
+                source_type=SourceType.CODE,
+                path="src/main/java/example/InvoicePrinter.java",
+                start_line=5,
+                end_line=18,
+                symbol="InvoicePrinter.print",
+            ),
+        ),
+        embedding=[0.0, 1.0, 0.0],
+        embedding_identity=provider.identity,
+    )
+    session.commit()
+
+    client = TestClient(create_app(HybridSearchService(repository, provider)))
+
+    response = client.post(
+        "/search-code",
+        json={"query": "unmatched text", "query_embedding": [0.0, 1.0, 0.0]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["score_parts"]["vector"] == 1.0
+    assert provider.calls == []
+
+
+def test_search_returns_embedding_unavailable_when_provider_fails() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    provider = QueryEmbeddingProvider(fail=True)
+
+    client = TestClient(create_app(HybridSearchService(repository, provider)))
+    response = client.post("/search-code", json={"query": "payment"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "embedding_unavailable"

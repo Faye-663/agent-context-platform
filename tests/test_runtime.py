@@ -54,6 +54,34 @@ def test_load_runtime_settings_rejects_partial_embedding_configuration() -> None
         )
 
 
+def test_load_runtime_settings_rejects_empty_embedding_batch_size() -> None:
+    with pytest.raises(RuntimeConfigError, match="ACP_EMBEDDING_BATCH_SIZE"):
+        load_runtime_settings(
+            {
+                "ACP_DATABASE_URL": "sqlite:///runtime.db",
+                "ACP_EMBEDDING_BASE_URL": "https://dashscope.aliyuncs.com/api/v1",
+                "ACP_EMBEDDING_API_KEY": "test-key",
+                "ACP_EMBEDDING_MODEL": "embedding-model",
+                "ACP_EMBEDDING_DIMENSION": "1024",
+                "ACP_EMBEDDING_BATCH_SIZE": "",
+            }
+        )
+
+
+def test_load_runtime_settings_rejects_zero_embedding_batch_size() -> None:
+    with pytest.raises(RuntimeConfigError, match="ACP_EMBEDDING_BATCH_SIZE"):
+        load_runtime_settings(
+            {
+                "ACP_DATABASE_URL": "sqlite:///runtime.db",
+                "ACP_EMBEDDING_BASE_URL": "https://dashscope.aliyuncs.com/api/v1",
+                "ACP_EMBEDDING_API_KEY": "test-key",
+                "ACP_EMBEDDING_MODEL": "embedding-model",
+                "ACP_EMBEDDING_DIMENSION": "1024",
+                "ACP_EMBEDDING_BATCH_SIZE": "0",
+            }
+        )
+
+
 def test_load_runtime_settings_rejects_invalid_log_level() -> None:
     with pytest.raises(RuntimeConfigError, match="ACP_LOG_LEVEL"):
         load_runtime_settings(

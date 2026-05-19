@@ -5,6 +5,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_context_platform.embeddings import (
+    EmbeddingDimensionError,
+    EmbeddingProvider,
+)
 from agent_context_platform.models import AssetType, SearchResult
 from agent_context_platform.storage import IndexedItemRepository
 
@@ -19,8 +23,13 @@ class HybridSearchQuery:
 
 
 class HybridSearchService:
-    def __init__(self, repository: IndexedItemRepository):
+    def __init__(
+        self,
+        repository: IndexedItemRepository,
+        embedding_provider: EmbeddingProvider | None = None,
+    ):
         self.repository = repository
+        self.embedding_provider = embedding_provider
 
     def search(self, search_query: HybridSearchQuery) -> list[SearchResult]:
         query = search_query.query.strip()
@@ -29,19 +38,33 @@ class HybridSearchService:
 
         filters = dict(search_query.filters or {})
         symbol_types = _as_string_list(filters.get("symbol_type"))
+        query_embedding = search_query.query_embedding
+        embedding_identity = None
+        if self.embedding_provider is not None:
+            embedding_identity = self.embedding_provider.identity
+            if query_embedding is None:
+                query_embedding = self.embedding_provider.embed_texts([query])[0]
+            elif len(query_embedding) != embedding_identity.dimension:
+                raise EmbeddingDimensionError(
+                    "query embedding dimension mismatch for "
+                    f"{embedding_identity.provider}/{embedding_identity.model}: "
+                    f"expected {embedding_identity.dimension}, got {len(query_embedding)}"
+                )
+
         candidates = self.repository.list_with_embeddings(
             asset_type=search_query.asset_type,
             path_prefix=filters.get("path_prefix"),
             language=filters.get("language"),
             symbol_types=symbol_types,
             table=filters.get("table"),
+            embedding_identity=embedding_identity,
         )
 
         tokens = _query_tokens(query)
         results: list[SearchResult] = []
         for item, embedding in candidates:
             keyword_score, matched_tokens = _keyword_score(item, tokens)
-            vector_score = _vector_score(search_query.query_embedding, embedding)
+            vector_score = _vector_score(query_embedding, embedding)
             score = round(keyword_score * 0.7 + vector_score * 0.3, 6)
             if score <= 0:
                 continue

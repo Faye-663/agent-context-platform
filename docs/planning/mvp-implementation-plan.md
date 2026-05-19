@@ -274,20 +274,22 @@
 
 ### 任务 12：外部 EmbeddingProvider 与批量 embedding 写入
 
-**说明：** 接入独立外部 EmbeddingProvider，为离线索引结果批量生成 embedding，并写入 `indexed_items.embedding`。
+**说明：** 接入独立外部 EmbeddingProvider，为离线索引结果批量生成 embedding，并写入按 provider、model、dimension 区分的 `item_embeddings`。
 
 **验收标准：**
 
-- [ ] 支持通过配置指定 embedding provider 的 `base_url`、`api_key`、`model`、`dimension` 和 `batch_size`。
-- [ ] 批量写入流程能为 Java、SQL、Markdown 三类索引项生成并保存 embedding。
-- [ ] embedding 维度与 pgvector 字段不匹配时明确失败，提示需要重建索引或调整配置。
-- [ ] provider 调用失败时输出必要日志，便于定位请求失败、限流或模型配置错误。
+- [x] 支持通过配置指定 embedding provider 的 `base_url`、`api_key`、`model`、`dimension` 和 `batch_size`。
+- [x] 批量写入流程能为 Java、SQL、Markdown 三类索引项生成并保存 embedding。
+- [x] embedding 维度与当前 provider/model/dimension 不匹配时明确失败，提示需要重建索引或调整配置。
+- [x] provider 调用失败时输出必要日志，便于定位请求失败、限流或模型配置错误。
 
 **验证方式：**
 
-- [ ] 使用脱敏样本完成一次离线索引、embedding 生成和落库验证。
-- [ ] 单元测试覆盖配置校验、维度不匹配和 provider 失败路径。
-- [ ] 集成验证确认查询侧能使用真实生成的 query embedding 和 item embedding。
+- [x] 使用脱敏样本完成一次离线索引、embedding 生成和落库验证。
+- [x] 单元测试覆盖配置校验、维度不匹配和 provider 失败路径。
+- [x] 集成验证确认查询侧能使用生成的 query embedding 和 item embedding。
+
+阶段五实际验证记录见 [阶段五实际验证记录](phase-5-verification.md)。当前实现不把数据库列固定为 `vector(768)`；embedding 按模型身份存入 `item_embeddings`，以兼容不同 embedding model 的维度。
 
 **依赖：** 任务 2、任务 3、任务 4、任务 5、任务 11
 

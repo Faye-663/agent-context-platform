@@ -56,10 +56,10 @@ MVP 技术栈以 Python glue code 为主，优先降低本地开发、离线索�
 | Markdown 解析 | markdown-it-py + line range glue code | 使用成熟 Markdown parser 处理标题和正文结构，补充行号定位逻辑。 |
 | 索引模式 | Offline Indexing | MVP 使用离线索引和手动重建，不做实时增量索引。 |
 | LLM | OpenAI-compatible 外部服务 | LLM 不作为检索必须依赖，后续可用于摘要、解释或评测辅助。 |
-| Embedding | 独立外部 EmbeddingProvider | embedding 与 LLM 分开选择；provider 通过 `base_url`、`api_key`、`model`、`dimension`、`batch_size` 配置。 |
+| Embedding | DashScope native EmbeddingProvider | embedding 与 LLM 分开选择；provider 通过 `base_url`、`api_key`、`model`、`dimension`、`batch_size` 配置。 |
 | 本地依赖 | 本机 PostgreSQL、pgvector extension | 本地开发默认使用本机安装，不把 Docker Compose 作为默认路径。 |
 
-Embedding 首版具体服务、模型名和向量维度仍需在实现前确认。因为 PostgreSQL `vector` 维度与 embedding 模型绑定，切换模型通常需要重建索引。
+Embedding 首版使用 DashScope native 多模态 embedding API。因为向量维度与 embedding 模型绑定，系统按 provider、model、dimension 独立保存 embedding；切换模型通常需要重新生成对应模型的索引向量。
 
 ## 数据流
 
@@ -76,7 +76,7 @@ Java / SQL / Markdown Indexer
     ↓
 生成 embedding
     ↓
-写入 PostgreSQL + pgvector
+写入 PostgreSQL + pgvector item_embeddings
 ```
 
 MVP 使用离线索引，不做实时增量索引。这样可以先验证召回质量和上下文组织方式，避免把复杂度投入到非核心链路。
@@ -160,7 +160,7 @@ MVP 不处理 PPT、PDF 和图片。
 
 - 存储结构化元数据。
 - 存储原始可检索文本摘要。
-- 存储 embedding。
+- 按 provider、model、dimension 存储 embedding。
 - 支持关键词检索、向量检索和结构化过滤。
 
 MVP 使用 PostgreSQL + pgvector，避免引入额外搜索集群和图数据库。
@@ -204,7 +204,7 @@ PostgreSQL 保存：
 - SourceCitation 来源引用。
 - asset type、language、symbol type、repo、path 等过滤字段。
 - 可检索正文或摘要。
-- embedding 向量。
+- item embedding 向量和对应 provider/model/dimension。
 
 PostgreSQL 不负责：
 
