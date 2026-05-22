@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 
 from agent_context_platform.embeddings import EmbeddingIdentity
 from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
-from agent_context_platform.storage import Base, IndexedItemRepository, ItemEmbeddingRecord
+from agent_context_platform.storage import (
+    Base,
+    IndexedItemRepository,
+    ItemEmbeddingRecord,
+    build_pgvector_search_statement,
+)
 
 
 def make_item(item_id: str, source: SourceCitation, metadata: dict[str, str]) -> IndexedItem:
@@ -159,3 +164,110 @@ def test_repository_rejects_embedding_identity_dimension_mismatch() -> None:
             assert "embedding dimension" in str(exc)
         else:
             raise AssertionError("expected embedding dimension mismatch")
+
+
+def test_repository_vector_search_orders_filters_and_limits_candidates() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+    other_identity = EmbeddingIdentity(provider="dashscope", model="model-b", dimension=3)
+    matching = make_item(
+        "code:InvoicePrinter.print",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            path="src/main/java/example/InvoicePrinter.java",
+            start_line=5,
+            end_line=18,
+            symbol="InvoicePrinter.print",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+    second = make_item(
+        "code:PaymentMessageBuilder.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            path="src/main/java/example/PaymentMessageBuilder.java",
+            start_line=10,
+            end_line=30,
+            symbol="PaymentMessageBuilder.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+    filtered_out = make_item(
+        "code:PythonHelper.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            path="src/PythonHelper.py",
+            start_line=1,
+            end_line=5,
+            symbol="PythonHelper.build",
+        ),
+        {"language": "python", "symbol_type": "function"},
+    )
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(matching, embedding=[0.0, 1.0, 0.0], embedding_identity=identity)
+        repository.save(second, embedding=[1.0, 0.0, 0.0], embedding_identity=identity)
+        repository.save(
+            filtered_out,
+            embedding=[0.0, 1.0, 0.0],
+            embedding_identity=identity,
+        )
+        repository.save(matching, embedding=[1.0, 0.0, 0.0], embedding_identity=other_identity)
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        results = repository.search_by_vector(
+            asset_type=AssetType.CODE,
+            query_embedding=[0.0, 1.0, 0.0],
+            embedding_identity=identity,
+            language="java",
+            symbol_types=["method"],
+            limit=1,
+        )
+
+    assert [(item.id, score) for item, score in results] == [
+        ("code:InvoicePrinter.print", 1.0)
+    ]
+
+
+def test_pgvector_search_statement_uses_cosine_distance_and_limit() -> None:
+    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+
+    statement = build_pgvector_search_statement(
+        asset_type=AssetType.CODE,
+        query_embedding=[0.0, 1.0, 0.0],
+        embedding_identity=identity,
+        language="java",
+        symbol_types=["method"],
+        limit=5,
+    )
+
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "item_embeddings.embedding <=>" in compiled
+    assert "item_embeddings.provider" in compiled
+    assert "item_embeddings.model" in compiled
+    assert "item_embeddings.dimension" in compiled
+    assert "LIMIT" in compiled
+
+
+def test_repository_vector_search_rejects_query_dimension_mismatch() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        try:
+            repository.search_by_vector(
+                asset_type=AssetType.CODE,
+                query_embedding=[1.0, 0.0],
+                embedding_identity=identity,
+                limit=1,
+            )
+        except ValueError as exc:
+            assert "embedding dimension" in str(exc)
+        else:
+            raise AssertionError("expected query embedding dimension mismatch")

@@ -51,20 +51,51 @@ class HybridSearchService:
                     f"expected {embedding_identity.dimension}, got {len(query_embedding)}"
                 )
 
-        candidates = self.repository.list_with_embeddings(
+        tokens = _query_tokens(query)
+        candidate_limit = max(1, search_query.limit)
+        candidate_vectors: dict[str, float] = {}
+        candidates: dict[str, Any] = {}
+        if query_embedding is not None and embedding_identity is not None:
+            # PostgreSQL 路径由 repository 下推给 pgvector；SQLite 测试路径保留轻量替代实现。
+            for item, vector_score in self.repository.search_by_vector(
+                asset_type=search_query.asset_type,
+                path_prefix=filters.get("path_prefix"),
+                language=filters.get("language"),
+                symbol_types=symbol_types,
+                table=filters.get("table"),
+                query_embedding=query_embedding,
+                embedding_identity=embedding_identity,
+                limit=candidate_limit,
+            ):
+                candidates[item.id] = item
+                candidate_vectors[item.id] = vector_score
+        elif query_embedding is not None:
+            for item, embedding in self.repository.list_with_embeddings(
+                asset_type=search_query.asset_type,
+                path_prefix=filters.get("path_prefix"),
+                language=filters.get("language"),
+                symbol_types=symbol_types,
+                table=filters.get("table"),
+                embedding_identity=embedding_identity,
+            ):
+                candidates[item.id] = item
+                candidate_vectors[item.id] = _vector_score(query_embedding, embedding)
+
+        for item in self.repository.list_keyword_candidates(
             asset_type=search_query.asset_type,
             path_prefix=filters.get("path_prefix"),
             language=filters.get("language"),
             symbol_types=symbol_types,
             table=filters.get("table"),
-            embedding_identity=embedding_identity,
-        )
+            keywords=sorted(tokens),
+            limit=candidate_limit,
+        ):
+            candidates.setdefault(item.id, item)
 
-        tokens = _query_tokens(query)
         results: list[SearchResult] = []
-        for item, embedding in candidates:
+        for item in candidates.values():
             keyword_score, matched_tokens = _keyword_score(item, tokens)
-            vector_score = _vector_score(query_embedding, embedding)
+            vector_score = candidate_vectors.get(item.id, 0.0)
             score = round(keyword_score * 0.7 + vector_score * 0.3, 6)
             if score <= 0:
                 continue

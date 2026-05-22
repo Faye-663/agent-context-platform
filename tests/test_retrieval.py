@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from agent_context_platform.embeddings import EmbeddingIdentity
 from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
 from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
 from agent_context_platform.storage import Base, IndexedItemRepository
@@ -160,3 +161,78 @@ def test_hybrid_search_combines_vector_similarity_with_keyword_score() -> None:
     assert results[0].item.id == "code:InvoicePrinter.print"
     assert results[0].score_parts is not None
     assert results[0].score_parts["vector"] == 1.0
+
+
+def test_hybrid_search_merges_bounded_keyword_and_vector_candidates() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    identity = EmbeddingIdentity(provider="fake", model="query-model", dimension=3)
+
+    repository.save(
+        make_item(
+            "code:KeywordOnlyService.build",
+            AssetType.CODE,
+            "KeywordOnlyService.build",
+            "rare payment keyword implementation",
+            SourceCitation(
+                source_type=SourceType.CODE,
+                path="src/main/java/example/KeywordOnlyService.java",
+                start_line=1,
+                end_line=12,
+                symbol="KeywordOnlyService.build",
+            ),
+            {"language": "java", "symbol_type": "method"},
+        )
+    )
+    repository.save(
+        make_item(
+            "code:VectorOnlyService.print",
+            AssetType.CODE,
+            "VectorOnlyService.print",
+            "invoice document",
+            SourceCitation(
+                source_type=SourceType.CODE,
+                path="src/main/java/example/VectorOnlyService.java",
+                start_line=1,
+                end_line=12,
+                symbol="VectorOnlyService.print",
+            ),
+            {"language": "java", "symbol_type": "method"},
+        ),
+        embedding=[0.0, 1.0, 0.0],
+        embedding_identity=identity,
+    )
+    session.commit()
+
+    service = HybridSearchService(repository, QueryEmbeddingProvider(identity))
+    results = service.search(
+        HybridSearchQuery(
+            query="rare payment",
+            asset_type=AssetType.CODE,
+            query_embedding=[0.0, 1.0, 0.0],
+            limit=10,
+            filters={"language": "java"},
+        )
+    )
+
+    result_ids = [result.item.id for result in results]
+    assert result_ids == [
+        "code:KeywordOnlyService.build",
+        "code:VectorOnlyService.print",
+    ]
+    assert results[0].score_parts is not None
+    assert results[0].score_parts["keyword"] == 1.0
+    assert results[0].score_parts["vector"] == 0.0
+    assert results[1].score_parts is not None
+    assert results[1].score_parts["keyword"] == 0.0
+    assert results[1].score_parts["vector"] == 1.0
+
+
+class QueryEmbeddingProvider:
+    def __init__(self, identity: EmbeddingIdentity):
+        self.identity = identity
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0, 1.0, 0.0] for _text in texts]
