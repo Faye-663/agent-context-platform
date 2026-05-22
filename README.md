@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope embedding provider 与批量 embedding 写入能力。
+项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope embedding provider、批量 embedding 写入能力与数据库侧 pgvector 相似度排序。
 
 已实现范围：
 
@@ -26,13 +26,13 @@
 - DashScope native EmbeddingProvider：通过 `ACP_EMBEDDING_*` 配置生成 query embedding 和 item embedding。
 - 多模型 embedding 存储：`item_embeddings` 按 `provider`、`model`、`dimension` 保存 embedding，避免把当前模型维度固定进 `indexed_items` 主表。
 - 批量 embedding 写入：支持把 Java、SQL、Markdown 三类离线索引结果生成 embedding 后落库。
+- 数据库侧 pgvector 相似度排序：provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 的 `<=>` 完成 query embedding 相似度排序，并保留关键词候选的有界合并。
 
 尚不满足真实可用 MVP 的项：
 
-- 数据库侧 pgvector 相似度排序。
 - 基于真实脱敏 Java 项目索引库的召回评测。
 
-阶段四通过的是固定脱敏样本回归，说明 MVP 骨架、Context API、MCP 包装层和评测脚本已经跑通；这不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要完成上述收口项，并用真实脱敏 Java 项目索引库验证召回质量。
+阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入和数据库侧 pgvector 排序；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
 
 ## 文档导航
 
@@ -45,7 +45,7 @@
 | [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
 | [阶段三实际验证记录](docs/planning/phase-3-verification.md) | 记录核心检索流程、接口和真实数据库验证结果 |
 | [阶段四实际验证记录](docs/planning/phase-4-verification.md) | 记录 MCP 接入、固定评测集和回归脚本验证结果 |
-| [阶段五实际验证记录](docs/planning/phase-5-verification.md) | 记录 ASGI 入口、运行配置和 embedding provider 验证结果 |
+| [阶段五实际验证记录](docs/planning/phase-5-verification.md) | 记录 ASGI 入口、运行配置、embedding provider、批量写入和 pgvector 排序验证结果 |
 | [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
 | [MVP 固定评测样本](docs/evaluation/mvp-evaluation-samples.json) | 保存阶段四脱敏半真实任务样本 |
 | [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
@@ -135,46 +135,54 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 ## 快速开始
 
-1. 复制配置样例，作为本地配置参考：
+以下命令默认在 Windows / PowerShell 中执行。
+
+1. 复制配置样例：
 
    ```powershell
    Copy-Item .env.example .env
    ```
 
-2. 在当前 PowerShell 进程中设置依赖缓存，并按需覆盖本地配置：
+2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要验证任务 12 的 DashScope embedding 时，还必须补齐 `ACP_EMBEDDING_API_KEY`。
+
+3. 在当前 PowerShell 进程中设置本仓库本地依赖缓存：
 
    ```powershell
    $env:UV_CACHE_DIR = ".uv-cache"
    $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-$env:ACP_DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/agent_context_platform"
-$env:ACP_EMBEDDING_BATCH_SIZE = "10"
    ```
 
-3. 安装项目依赖：
+4. 安装项目依赖：
 
    ```powershell
    uv sync --extra test
    ```
 
-4. 执行数据库迁移：
+5. 将 `.env` 中的运行配置加载到当前进程，并执行数据库迁移：
 
    ```powershell
+   Get-Content .env | ForEach-Object {
+       if ($_ -and -not $_.TrimStart().StartsWith("#") -and $_.Contains("=")) {
+           $name, $value = $_.Split("=", 2)
+           Set-Item -Path "Env:$($name.Trim())" -Value $value.Trim().Trim('"')
+       }
+   }
    uv run alembic upgrade head
    ```
 
-5. 运行完整测试：
+6. 运行完整测试：
 
    ```powershell
    uv run --extra test pytest
    ```
 
-6. 启动长期运行的 Context API：
+7. 启动长期运行的 Context API：
 
    ```powershell
    uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000 --env-file .env
    ```
 
-7. 另开一个 PowerShell 终端，启动 MCP server wrapper：
+8. 另开一个 PowerShell 终端，启动 MCP server wrapper：
 
    ```powershell
    $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
@@ -185,27 +193,63 @@ $env:ACP_EMBEDDING_BATCH_SIZE = "10"
 
 固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
 
-MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用和批量 embedding 写入；数据库侧 pgvector 相似度排序仍属于任务 13。
+MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
 
 ## 本地验证
 
-当前阶段三验证结果：
-
-- `uv run --extra test pytest`：`20 passed`
-- `uv run --extra test python scripts/verify_phase3_runtime.py`：通过 FastAPI app factory 实际调用 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context`。
-- 真实 PostgreSQL / pgvector 验证：在 `ACP_DATABASE_URL=postgresql+psycopg://postgres@localhost:55432/agent_context_platform` 下执行迁移与运行时验证通过。
-- 验证记录见 [阶段三实际验证记录](docs/planning/phase-3-verification.md)。
-
-固定 ASGI 入口验证：
+### 基础验证
 
 ```powershell
-$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
-uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test pytest
 ```
 
-当前已完成真实 PostgreSQL / pgvector 冒烟验证：`/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context` 均通过固定 ASGI 入口返回预期结果。
+当前任务 13 后验证结果：
 
-当前开发机已验证过一套隔离 PostgreSQL / pgvector 环境：
+- `uv run --extra test pytest`：`48 passed`
+
+### 固定评测集回归
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test python scripts/run_mvp_evaluation.py
+```
+
+当前结果：
+
+- `sample_count=10`
+- `passed=true`
+- `top5_hit_rate=1.0`
+- `top10_irrelevant_result_count=0`
+- `source_citation_completeness=1.0`
+
+### 固定 ASGI 入口验证
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+服务启动后，可以用任意 HTTP client 调用 `/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context`。固定 ASGI 入口的真实 PostgreSQL / pgvector 冒烟验证记录见 [阶段五实际验证记录](docs/planning/phase-5-verification.md)。
+
+### MCP 包装层验证
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run --extra test pytest tests/test_mcp_server.py
+```
+
+当前结果：
+
+- `uv run --extra test pytest tests/test_mcp_server.py`：`4 passed`
+
+### 本地 PostgreSQL / pgvector 启动
+
+当前开发机已验证过一套隔离 PostgreSQL / pgvector 环境，工具链位于 `D:\Code\ACPTools`。如果使用这套本地环境：
 
 ```powershell
 $toolRoot = "D:\Code\ACPTools"
@@ -217,27 +261,44 @@ $env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_con
 uv run alembic upgrade head
 ```
 
-阶段三已覆盖真实 PostgreSQL + pgvector 写读和运行时检索路径。阶段五任务 12 补充了 DashScope native provider、query embedding 自动生成和 item embedding 批量写入。当前混合检索仍在应用侧计算关键词分数和向量余弦相似度，数据库侧 pgvector 排序留给任务 13。
+验证完成后停止本地数据库：
 
-MCP 包装层验证：
+```powershell
+& "$toolRoot\pg-pixi\.pixi\envs\default\Library\bin\pg_ctl.exe" -D "$toolRoot\pg-data" stop
+```
+
+### 任务 12 embedding 写入验证
+
+`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用 DashScope provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run --extra test pytest tests/test_mcp_server.py
+uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
 ```
 
-固定评测集回归：
+当前已验证输出摘要：
+
+- `saved_count=3`
+- `embedding_counts=code:1,db_schema:1,doc:1`
+- query embedding 检索返回非零 vector score
+
+### 任务 13 pgvector 排序验证
+
+该验证不依赖外部 embedding provider。脚本会写入确定性样本，调用 repository 的 PostgreSQL / pgvector 查询，并断言 SQL 实际使用 `<=>` 和 `LIMIT`：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run --extra test python scripts/run_mvp_evaluation.py
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_task13"
+uv run alembic upgrade head
+uv run --extra test python scripts/verify_task13_pgvector_search.py
 ```
 
-当前阶段四验证结果：
+当前已验证输出：
 
-- `uv run --extra test pytest tests/test_mcp_server.py`：`4 passed`
-- `uv run --extra test pytest tests/test_evaluation.py`：`2 passed`
-- `uv run --extra test pytest`：`26 passed`
-- `uv run --extra test python scripts/run_mvp_evaluation.py`：`sample_count=10`，`passed=true`，`top5_hit_rate=1.0`，`top10_irrelevant_result_count=0`，`source_citation_completeness=1.0`
+- `task13 pgvector search verification passed`
+- `top_result=task13:code:vector-top`
+- `vector_score=1.0`
+- `operator=<=>`
+- `limit_applied=true`

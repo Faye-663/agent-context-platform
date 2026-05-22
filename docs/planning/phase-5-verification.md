@@ -11,13 +11,20 @@
 - 查询侧在未显式传 `query_embedding` 时自动生成 query embedding。
 - provider 调用失败时返回 `embedding_unavailable`，不静默降级。
 
+任务 13 当前覆盖：
+
+- provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 执行 query embedding 相似度排序。
+- `HybridSearchService` 采用有界合并：向量候选由数据库侧按 `<=>` 排序并 `LIMIT`，关键词候选保留数据库阶段过滤与 `LIMIT`，最终仍输出统一 `SearchResult`。
+- SQLite 测试路径保留应用侧余弦相似度替代实现，不阻塞单元测试。
+- 查询侧继续校验 query embedding 维度，避免不同 embedding model 维度混用。
+
 ## 已执行验证
 
 ### 单元与回归验证
 
 ```text
 uv run --extra test pytest
-44 passed
+48 passed
 ```
 
 ```text
@@ -27,6 +34,33 @@ passed=true
 top5_hit_rate=1.0
 top10_irrelevant_result_count=0
 source_citation_completeness=1.0
+```
+
+### PostgreSQL / pgvector 相似度排序验证
+
+使用 scratch 数据库 `agent_context_platform_task13` 执行：
+
+```powershell
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_task13"
+uv run alembic upgrade head
+uv run --extra test python scripts/verify_task13_pgvector_search.py
+```
+
+迁移输出：
+
+```text
+Running upgrade  -> 202605120001
+Running upgrade 202605120001 -> 202605190001
+```
+
+验证输出：
+
+```text
+task13 pgvector search verification passed
+top_result=task13:code:vector-top
+vector_score=1.0
+operator=<=>
+limit_applied=true
 ```
 
 ### PostgreSQL / pgvector 迁移验证
@@ -72,10 +106,11 @@ top_code_result=code:src/main/java/example/Task12PaymentService.java:Task12Payme
 
 ## 真实验证命令
 
-`.env` 必须包含完整 DashScope 配置，并补齐：
+基础命令默认在 Windows / PowerShell 中执行。先固定本仓库本地依赖缓存：
 
 ```powershell
-$env:ACP_EMBEDDING_BATCH_SIZE = "10"
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 ```
 
 如果使用本地隔离 PostgreSQL / pgvector：
@@ -84,14 +119,32 @@ $env:ACP_EMBEDDING_BATCH_SIZE = "10"
 $toolRoot = "D:\Code\ACPTools"
 $env:PIXI_HOME = Join-Path $toolRoot "pixi-home"
 $env:PIXI_CACHE_DIR = Join-Path $toolRoot "pixi-cache"
-$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
 
 & "$toolRoot\pixi.exe" run --manifest-path "$toolRoot\pg-pixi\pixi.toml" pg_ctl -D "$toolRoot\pg-data" -l "$toolRoot\postgres.log" -o "-p 55432" start
+```
+
+任务 12 需要 `.env` 包含完整 DashScope 配置：
+
+```powershell
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
 uv run alembic upgrade head
 uv run --extra test python scripts/verify_task12_embeddings.py --env-file D:\Code\GitHub\agent-context-platform\.env
 ```
 
+任务 13 不依赖外部 embedding provider，可使用独立 scratch 数据库验证 pgvector 排序：
+
+```powershell
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_task13"
+uv run alembic upgrade head
+uv run --extra test python scripts/verify_task13_pgvector_search.py
+```
+
+验证完成后停止本地数据库：
+
+```powershell
+& "$toolRoot\pg-pixi\.pixi\envs\default\Library\bin\pg_ctl.exe" -D "$toolRoot\pg-data" stop
+```
+
 ## 未覆盖边界
 
-- 任务 13 的数据库侧 pgvector 相似度排序尚未实现。
 - 真实脱敏 Java 项目索引库召回评测仍属于任务 14。
