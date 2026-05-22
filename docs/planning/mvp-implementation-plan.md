@@ -301,16 +301,18 @@
 
 **验收标准：**
 
-- [ ] repository 层支持基于 query embedding 的 pgvector 相似度查询。
-- [ ] 混合检索仍保留关键词分数、向量分数、结构化过滤和统一 `SearchResult`。
-- [ ] `limit` 和结构化过滤在数据库查询阶段生效，避免无界候选扫描。
-- [ ] SQLite 测试路径保留轻量替代实现，不阻塞单元测试。
+- [x] repository 层支持基于 query embedding 的 pgvector 相似度查询。
+- [x] 混合检索仍保留关键词分数、向量分数、结构化过滤和统一 `SearchResult`。
+- [x] `limit` 和结构化过滤在数据库查询阶段生效，避免无界候选扫描。
+- [x] SQLite 测试路径保留轻量替代实现，不阻塞单元测试。
 
 **验证方式：**
 
-- [ ] 单元测试覆盖排序、过滤、空 embedding 和维度异常路径。
-- [ ] PostgreSQL / pgvector 集成验证确认相似度排序来自数据库查询。
-- [ ] 固定评测集回归指标不低于阶段四结果。
+- [x] 单元测试覆盖排序、过滤、空 embedding 和维度异常路径。
+- [x] PostgreSQL / pgvector 集成验证确认相似度排序来自数据库查询。
+- [x] 固定评测集回归指标不低于阶段四结果。
+
+阶段五实际验证记录见 [阶段五实际验证记录](phase-5-verification.md)。当前实现会在 provider/model/dimension 明确时使用 PostgreSQL / pgvector 的 `<=>` 相似度排序；SQLite 路径保留应用侧轻量排序用于单元测试。
 
 **依赖：** 任务 6、任务 12
 
@@ -341,7 +343,7 @@
 
 - [x] Context API 可以通过固定 ASGI 入口长期运行。
 - [ ] 真实索引流程可以生成并保存 embedding。
-- [ ] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
+- [x] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
 - [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
 
 ## 风险与应对
