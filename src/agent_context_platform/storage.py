@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -11,6 +12,8 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    func,
+    or_,
     select,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -232,6 +235,100 @@ class IndexedItemRepository:
         record = self.session.scalars(statement).first()
         return list(record.embedding) if record is not None else None
 
+    def list_keyword_candidates(
+        self,
+        *,
+        asset_type: AssetType | None = None,
+        path_prefix: str | None = None,
+        language: str | None = None,
+        symbol_types: Sequence[str] | None = None,
+        table: str | None = None,
+        keywords: Sequence[str] = (),
+        limit: int = 10,
+    ) -> list[IndexedItem]:
+        if limit <= 0 or not keywords:
+            return []
+
+        statement = _apply_item_filters(
+            select(IndexedItemRecord),
+            asset_type=asset_type,
+            path_prefix=path_prefix,
+            language=language,
+            symbol_types=symbol_types,
+            table=table,
+        )
+        keyword_conditions = []
+        for keyword in keywords:
+            pattern = f"%{keyword.lower()}%"
+            keyword_conditions.extend(
+                [
+                    func.lower(IndexedItemRecord.title).like(pattern),
+                    func.lower(IndexedItemRecord.content).like(pattern),
+                    func.lower(IndexedItemRecord.summary).like(pattern),
+                    func.lower(IndexedItemRecord.symbol).like(pattern),
+                    func.lower(IndexedItemRecord.table_name).like(pattern),
+                    func.lower(IndexedItemRecord.heading_path).like(pattern),
+                    func.lower(IndexedItemRecord.path).like(pattern),
+                ]
+            )
+        statement = statement.where(or_(*keyword_conditions))
+        records = self.session.scalars(
+            statement.order_by(IndexedItemRecord.id).limit(limit)
+        ).all()
+        return [record.to_indexed_item() for record in records]
+
+    def search_by_vector(
+        self,
+        *,
+        asset_type: AssetType | None = None,
+        path_prefix: str | None = None,
+        language: str | None = None,
+        symbol_types: Sequence[str] | None = None,
+        table: str | None = None,
+        query_embedding: Sequence[float],
+        embedding_identity: EmbeddingIdentity | None = None,
+        limit: int = 10,
+    ) -> list[tuple[IndexedItem, float]]:
+        if limit <= 0:
+            return []
+        if embedding_identity is not None:
+            _validate_embedding_dimension(query_embedding, embedding_identity)
+
+        if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
+            statement = build_pgvector_search_statement(
+                asset_type=asset_type,
+                path_prefix=path_prefix,
+                language=language,
+                symbol_types=symbol_types,
+                table=table,
+                query_embedding=query_embedding,
+                embedding_identity=embedding_identity,
+                limit=limit,
+            )
+            rows = self.session.execute(statement).all()
+            return [
+                (record.to_indexed_item(), _cosine_distance_to_score(distance))
+                for record, distance in rows
+            ]
+
+        candidates = self.list_with_embeddings(
+            asset_type=asset_type,
+            path_prefix=path_prefix,
+            language=language,
+            symbol_types=symbol_types,
+            table=table,
+            embedding_identity=embedding_identity,
+        )
+        scored = [
+            (item, _cosine_similarity(query_embedding, embedding))
+            for item, embedding in candidates
+        ]
+        return [
+            (item, score)
+            for item, score in sorted(scored, key=lambda row: (-row[1], row[0].id))
+            if score > 0
+        ][:limit]
+
 
 def _manual_embedding_identity(embedding: Sequence[float]) -> EmbeddingIdentity:
     return EmbeddingIdentity(
@@ -249,6 +346,84 @@ def _validate_embedding_dimension(
             "embedding dimension mismatch: "
             f"expected {identity.dimension}, got {len(embedding)}"
         )
+
+
+def build_pgvector_search_statement(
+    *,
+    asset_type: AssetType | None = None,
+    path_prefix: str | None = None,
+    language: str | None = None,
+    symbol_types: Sequence[str] | None = None,
+    table: str | None = None,
+    query_embedding: Sequence[float],
+    embedding_identity: EmbeddingIdentity | None = None,
+    limit: int = 10,
+):
+    distance = ItemEmbeddingRecord.embedding.cosine_distance(list(query_embedding)).label(
+        "distance"
+    )
+    statement = select(IndexedItemRecord, distance).join(
+        ItemEmbeddingRecord, ItemEmbeddingRecord.item_id == IndexedItemRecord.id
+    )
+    statement = _apply_item_filters(
+        statement,
+        asset_type=asset_type,
+        path_prefix=path_prefix,
+        language=language,
+        symbol_types=symbol_types,
+        table=table,
+    )
+    if embedding_identity is not None:
+        statement = statement.where(
+            ItemEmbeddingRecord.provider == embedding_identity.provider,
+            ItemEmbeddingRecord.model == embedding_identity.model,
+            ItemEmbeddingRecord.dimension == embedding_identity.dimension,
+        )
+    return statement.order_by(distance, IndexedItemRecord.id).limit(limit)
+
+
+def _apply_item_filters(
+    statement,
+    *,
+    asset_type: AssetType | None,
+    path_prefix: str | None,
+    language: str | None,
+    symbol_types: Sequence[str] | None,
+    table: str | None,
+):
+    if asset_type is not None:
+        statement = statement.where(IndexedItemRecord.asset_type == asset_type.value)
+    if path_prefix is not None:
+        statement = statement.where(IndexedItemRecord.path.startswith(path_prefix))
+    if language is not None:
+        statement = statement.where(IndexedItemRecord.language == language)
+    if symbol_types:
+        statement = statement.where(IndexedItemRecord.symbol_type.in_(symbol_types))
+    if table is not None:
+        statement = statement.where(IndexedItemRecord.table_name == table)
+    return statement
+
+
+def _cosine_distance_to_score(distance: float | None) -> float:
+    if distance is None:
+        return 0.0
+    return round(max(0.0, 1.0 - float(distance)), 6)
+
+
+def _cosine_similarity(
+    query_embedding: Sequence[float], item_embedding: Sequence[float] | None
+) -> float:
+    if not query_embedding or not item_embedding:
+        return 0.0
+    if len(query_embedding) != len(item_embedding):
+        return 0.0
+
+    dot = sum(left * right for left, right in zip(query_embedding, item_embedding))
+    query_norm = math.sqrt(sum(value * value for value in query_embedding))
+    item_norm = math.sqrt(sum(value * value for value in item_embedding))
+    if query_norm == 0 or item_norm == 0:
+        return 0.0
+    return round(max(0.0, dot / (query_norm * item_norm)), 6)
 
 
 def make_engine(database_url: str, *, echo: bool = False) -> Engine:
