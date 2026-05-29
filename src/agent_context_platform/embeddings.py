@@ -26,11 +26,21 @@ class EmbeddingDimensionError(ValueError):
 
 @dataclass(frozen=True)
 class EmbeddingIdentity:
+    """一个 embedding 向量空间的身份。
+
+    例子：provider="dashscope", model="text-embedding-v4", dimension=1024。
+    只有三者都相同的向量才可以直接做相似度比较。
+    """
+
+    # provider 是服务商或实现名，例如 "dashscope" 或测试里的 "fake"。
     provider: str
+    # model 是具体 embedding 模型名。
     model: str
+    # dimension 是向量维度，用来阻止不同维度向量误写入或误比较。
     dimension: int
 
     def __post_init__(self) -> None:
+        # provider/model/dimension 共同定义向量空间，缺一项都会让后续相似度比较失去意义。
         if not self.provider.strip():
             raise ValueError("embedding provider must not be empty")
         if not self.model.strip():
@@ -86,6 +96,7 @@ class DashScopeEmbeddingProvider:
         if not texts:
             return []
 
+        # DashScope multimodal embedding 使用 input.contents；不要套用 OpenAI /embeddings 的 payload。
         payload = {
             "model": self.model,
             "input": {"contents": [{"text": text} for text in texts]},
@@ -132,6 +143,7 @@ class DashScopeEmbeddingProvider:
                 "DashScope embedding response count does not match input count"
             )
         for embedding in embeddings:
+            # 维度必须在 provider 边界先校验，避免错误向量写入 item_embeddings 后才暴露。
             _validate_embedding_dimension(embedding, self.identity)
         return embeddings
 
@@ -143,6 +155,7 @@ def embed_and_save_items(
 ) -> int:
     saved_count = 0
     for batch in _batches(items, provider.batch_size):
+        # 批量调用外部 provider，减少网络往返；保存时仍逐条保留 item 与 embedding 的对应关系。
         texts = [_embedding_text(item) for item in batch]
         embeddings = provider.embed_texts(texts)
         if len(embeddings) != len(batch):

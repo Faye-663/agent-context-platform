@@ -14,6 +14,7 @@ from agent_context_platform.storage import Base, IndexedItemRepository, make_eng
 
 
 def main() -> None:
+    # 阶段三验证覆盖 FastAPI 运行路径；默认 SQLite，设置 ACP_DATABASE_URL 后可连真实数据库。
     database_url = os.environ.get("ACP_DATABASE_URL", "sqlite:///:memory:")
     engine = _make_verification_engine(database_url)
     Base.metadata.create_all(engine)
@@ -117,6 +118,7 @@ def _seed_phase3_samples(repository: IndexedItemRepository) -> None:
 
 
 def _make_verification_engine(database_url: str):
+    # TestClient 需要跨线程访问同一个 SQLite 内存库，因此这里使用 StaticPool。
     if database_url == "sqlite:///:memory:":
         return create_engine(
             "sqlite://",

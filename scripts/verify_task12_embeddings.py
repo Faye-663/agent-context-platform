@@ -22,6 +22,7 @@ from agent_context_platform.storage import IndexedItemRepository, make_engine
 
 
 def main() -> None:
+    # 任务 12 验证会真实调用外部 embedding provider；运行前必须确认 .env/ACP_EMBEDDING_*。
     args = _parse_args()
     _load_env_file(args.env_file)
     settings = load_runtime_settings()
@@ -115,6 +116,7 @@ def _load_env_file(path: Path | None) -> None:
 
 
 def _sample_items():
+    # 使用最小脱敏样本覆盖 code/db_schema/doc 三类资产，验证批量 embedding 写入链路。
     java_items = index_java_source(
         "src/main/java/example/Task12PaymentService.java",
         """

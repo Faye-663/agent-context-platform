@@ -25,6 +25,7 @@ DEFAULT_SAMPLES_PATH = ROOT / "docs" / "evaluation" / "mvp-evaluation-samples.js
 
 
 def main() -> None:
+    # 这是固定样本回归评测脚本，不是线上检索入口；线上请求仍走 FastAPI/MCP。
     args = _parse_args()
     samples = _load_samples(args.samples)
     client = _make_seeded_client()
@@ -58,6 +59,7 @@ def _load_samples(path: Path) -> list[EvaluationSample]:
 
 
 def _make_seeded_client() -> TestClient:
+    # 评测用内存 SQLite 和脱敏样本，目的是稳定比较召回质量，不依赖本机 PostgreSQL。
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -93,6 +95,7 @@ def _post_build_task_context(
 
 
 def _seed_evaluation_corpus(repository: IndexedItemRepository) -> None:
+    # 这里直接写 IndexedItem，跳过 indexers，便于评测集专注检索排序和上下文组装。
     for item in _evaluation_items():
         repository.save(item, embedding=[1.0, 0.0, 0.0])
 

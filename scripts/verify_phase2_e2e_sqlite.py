@@ -30,6 +30,7 @@ MARKDOWN_PATH = "docs/payment.md"
 
 
 def main() -> None:
+    # 阶段二验证脚本会读真实样本文件并写入可查看的 SQLite；它补充 pytest 的内存库路径。
     args = _parse_args()
     result = verify_phase2_e2e(
         sample_root=args.sample_root,
@@ -45,6 +46,7 @@ def verify_phase2_e2e(
     sqlite_db: Path,
     reset: bool = True,
 ) -> dict[str, Any]:
+    # reset=True 只清空索引表，不删除 SQLite 文件，避免 IDE 打开数据库时 Windows 文件锁失败。
     sample_root = sample_root.resolve()
     sqlite_db = sqlite_db.resolve()
     _assert_required_files(sample_root)
