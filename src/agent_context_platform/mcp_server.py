@@ -22,6 +22,11 @@ class HttpClient(Protocol):
 
 
 class ContextApiError(RuntimeError):
+    """MCP 工具调用 Context API 失败时抛出的错误。
+
+    例子：code="embedding_unavailable" 表示向量 provider 或维度校验失败。
+    """
+
     def __init__(
         self, code: str, message: str, details: Any | None = None
     ) -> None:
@@ -33,7 +38,11 @@ class ContextApiError(RuntimeError):
 
 @dataclass(frozen=True)
 class JsonHttpResponse:
+    """Context API HTTP 响应的最小抽象，便于测试替换 urllib 实现。"""
+
+    # status_code 保留 HTTP 状态码，例如 200 或 400。
     status_code: int
+    # payload 是已经解码后的 JSON dict。
     payload: dict[str, Any]
 
     def json(self) -> dict[str, Any]:
@@ -42,10 +51,13 @@ class JsonHttpResponse:
 
 class ContextApiHttpClient:
     def __init__(self, base_url: str, *, timeout_seconds: float = 10.0):
+        # base_url 指向 Context API，例如 "http://127.0.0.1:8000"。
         self.base_url = base_url.rstrip("/")
+        # timeout_seconds 防止 MCP 工具调用无限等待后端 API。
         self.timeout_seconds = timeout_seconds
 
     def post(self, path: str, json: dict[str, Any]) -> JsonHttpResponse:
+        # MCP 进程不直连数据库，而是通过 Context API 复用同一套校验、检索和错误处理。
         url = f"{self.base_url}/{path.lstrip('/')}"
         data = _json_bytes(json)
         request = Request(
@@ -154,6 +166,7 @@ class ContextApiToolClient:
         query_embedding: list[float] | None,
         request_id: str | None,
     ) -> dict[str, Any]:
+        # search_* 工具共享同一 payload 形状，便于 Agent 在不同资产类型之间切换。
         payload: dict[str, Any] = {
             "query": query,
             "limit": limit,
@@ -169,6 +182,7 @@ class ContextApiToolClient:
         response = self.http_client.post(path, json=payload)
         body = response.json()
         if response.status_code >= 400:
+            # 保留 Context API 的错误码和 details，MCP 调试时才能定位是参数、embedding 还是存储问题。
             error = body.get("error", {})
             if isinstance(error, dict):
                 code = str(error.get("code") or "context_api_error")
@@ -185,6 +199,7 @@ def create_mcp_server(
 ):
     from mcp.server.fastmcp import FastMCP
 
+    # FastMCP 只暴露工具壳；业务逻辑仍在 Context API，避免 MCP 和 HTTP 两套行为漂移。
     server = FastMCP("agent-context-platform", json_response=True)
     tool_client = ContextApiToolClient(http_client or ContextApiHttpClient(base_url))
 

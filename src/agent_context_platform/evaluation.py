@@ -6,7 +6,15 @@ from pydantic import BaseModel, Field
 
 
 class ExpectedHit(BaseModel):
+    """评测样本期望命中的来源。
+
+    例子：source_type="code", symbol="PaymentMessageBuilder.build"。
+    它只用于离线评测，不参与线上检索排序。
+    """
+
+    # source_type 对齐 SourceCitation.source_type。
     source_type: str
+    # 下面字段按需要填写，评测时会和返回结果的 source 做子集匹配。
     path: str | None = None
     symbol: str | None = None
     table: str | None = None
@@ -15,11 +23,22 @@ class ExpectedHit(BaseModel):
 
 
 class EvaluationSample(BaseModel):
+    """一条固定评测样本。
+
+    task 会被送进 build-task-context，expected_hits 用来判断 top5 是否召回目标来源。
+    """
+
+    # id 用于把样本和实际 API 返回 payload 对齐。
     id: str = Field(min_length=1)
+    # task 是模拟 Agent 任务的自然语言描述。
     task: str = Field(min_length=1)
+    # expected_hits 至少有一个，否则评测不知道什么算成功。
     expected_hits: list[ExpectedHit] = Field(min_length=1)
+    # irrelevant_result_ids 用来标记不应进入 top10 的已知噪声结果。
     irrelevant_result_ids: list[str] = Field(default_factory=list)
+    # irrelevant_rules 保留人工说明，不参与当前自动计算。
     irrelevant_rules: list[str] = Field(default_factory=list)
+    # notes 记录样本意图，方便以后扩展评测集。
     notes: str | None = None
 
 
@@ -49,6 +68,7 @@ def evaluate_context_payloads(
     min_top5_hit_rate: float = 0.7,
     max_top10_irrelevant_result_count: int = 3,
 ) -> EvaluationReport:
+    # evaluation 只评估 Context API 返回 payload，不负责重新检索或修改索引。
     sample_results: list[EvaluationSampleResult] = []
     hit_count = 0
     returned_result_count = 0

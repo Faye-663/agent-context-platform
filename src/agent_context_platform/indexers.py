@@ -18,6 +18,7 @@ _JAVA_PARSER = Parser(_JAVA_LANGUAGE)
 
 
 def index_java_source(path: str, content: str, repo: str | None = None) -> list[IndexedItem]:
+    # 这里是 Java 离线索引的最小边界：调用方负责读取文件，本函数只把单个文件解析成可检索资产。
     tree = _JAVA_PARSER.parse(content.encode("utf-8"))
     items: list[IndexedItem] = []
     for class_node in _walk_nodes(tree.root_node, {"class_declaration"}):
@@ -29,6 +30,7 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
         class_source = _source_lines(content, class_node)
         class_annotations = _annotation_names(class_node)
         class_signature = _signature_text(class_node)
+        # class 自身作为一个 IndexedItem，后续可按 symbol_type=class 做结构化过滤。
         items.append(
             _indexed_item(
                 item_id=f"code:{path}:{class_name}",
@@ -56,6 +58,7 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
         class_body = class_node.child_by_field_name("body")
         if class_body is None:
             continue
+        # method 作为独立资产入库，避免检索结果只能定位到整类而不能定位到具体实现片段。
         for method_node in _walk_nodes(class_body, {"method_declaration"}):
             method_name_node = method_node.child_by_field_name("name")
             if method_name_node is None:
@@ -90,6 +93,7 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
 
 
 def index_sql_ddl(path: str, content: str, repo: str | None = None) -> list[IndexedItem]:
+    # sqlglot 输出 AST 后，再拆成 table/column 两级资产，方便任务只召回相关表或字段。
     expressions = sqlglot.parse(content, read="postgres")
     indexes_by_table = _collect_sql_indexes(expressions)
     items: list[IndexedItem] = []
@@ -157,6 +161,7 @@ def index_sql_ddl(path: str, content: str, repo: str | None = None) -> list[Inde
 def index_markdown_document(
     path: str, content: str, repo: str | None = None
 ) -> list[IndexedItem]:
+    # Markdown 按 heading 切片，而不是整篇入库，避免一个长文档压过真正相关的小节。
     tokens = MarkdownIt().parse(content)
     lines = content.splitlines()
     headings = _markdown_headings(tokens)
@@ -232,6 +237,7 @@ def _indexed_item(
 
 
 def _walk_nodes(root: Node, node_types: set[str]) -> list[Node]:
+    # tree-sitter 的 Node 没有直接按类型查询的高层 API，这里用显式栈保留遍历顺序和可调试性。
     found: list[Node] = []
     stack = [root]
     while stack:
@@ -255,6 +261,7 @@ def _source_lines(content: str, node: Node) -> _LineSource:
 
 
 def _annotation_names(node: Node) -> list[str]:
+    # 只读取当前节点 modifiers 下的注解，避免 method 注解泄漏到 class 级 metadata。
     modifiers = next((child for child in node.children if child.type == "modifiers"), None)
     if modifiers is None:
         return []

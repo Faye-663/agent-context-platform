@@ -25,22 +25,45 @@ class RuntimeConfigError(ValueError):
 
 
 class EmbeddingProviderSettings(BaseModel):
+    """外部 embedding provider 的运行配置。
+
+    例子：DashScope base_url + api_key + model + dimension + batch_size。
+    这里的 dimension 会一路传到 EmbeddingIdentity，用来保护向量比较边界。
+    """
+
+    # base_url 是 provider API 根地址，不包含具体 embedding path。
     base_url: str = Field(min_length=1)
+    # api_key 只从环境变量读取，不写入文档或日志。
     api_key: str = Field(min_length=1)
+    # model 是 embedding 模型名，例如 DashScope 的 multimodal embedding 模型。
     model: str = Field(min_length=1)
+    # dimension 必须和 provider 实际返回向量维度一致。
     dimension: int = Field(gt=0)
+    # batch_size 控制一次外部请求包含多少 IndexedItem 文本。
     batch_size: int = Field(gt=0)
 
 
 class RuntimeSettings(BaseModel):
+    """应用启动时需要的完整运行配置。
+
+    从 ACP_* 环境变量解析后，create_runtime_app 会把它组装成 engine、session、
+    repository、HybridSearchService 和 FastAPI app。
+    """
+
+    # database_url 决定真实后端：本地测试可用 SQLite，生产检索应使用 PostgreSQL/pgvector。
     database_url: str = Field(min_length=1)
+    # environment 仅标识运行环境，例如 local/test/prod。
     environment: str = Field(default="local", min_length=1)
+    # log_level 只控制 agent_context_platform logger。
     log_level: str = "INFO"
+    # sql_echo 用于调试 SQLAlchemy 生成的 SQL，不建议生产常开。
     sql_echo: bool = False
+    # embedding 为空时仍可做 keyword 检索；非空时 search 会启用 query embedding。
     embedding: EmbeddingProviderSettings | None = None
 
 
 def load_runtime_settings(environ: Mapping[str, str] | None = None) -> RuntimeSettings:
+    # 这里是 .env/环境变量进入应用的唯一配置入口，调试启动失败先看 ACP_* 是否在这里解析成功。
     values = dict(os.environ if environ is None else environ)
     database_url = _required(values, "ACP_DATABASE_URL")
     embedding = _load_embedding_settings(values)
@@ -57,6 +80,7 @@ def load_runtime_settings(environ: Mapping[str, str] | None = None) -> RuntimeSe
 
 
 def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
+    # runtime 负责把配置装配成真实依赖；api.py 只关心传入的 search_service_scope。
     resolved_settings = settings or load_runtime_settings()
     _configure_logging(resolved_settings.log_level)
     try:
@@ -71,6 +95,7 @@ def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
     session_factory = sessionmaker(bind=engine)
     embedding_provider = None
     if resolved_settings.embedding is not None:
+        # embedding provider 是可选依赖；没有配置时 API 仍可走 keyword-only 检索。
         embedding_provider = DashScopeEmbeddingProvider(
             base_url=resolved_settings.embedding.base_url,
             api_key=resolved_settings.embedding.api_key,

@@ -27,6 +27,7 @@ ITEM_IDS = [
 
 
 def main() -> None:
+    # 任务 13 必须连接 PostgreSQL/pgvector，用来确认排序已下推到数据库侧 <=> 算子。
     args = _parse_args()
     _load_env_file(args.env_file)
     settings = load_runtime_settings()
@@ -40,6 +41,7 @@ def main() -> None:
     def capture_sql(
         _conn, _cursor, statement, _parameters, _context, _executemany
     ) -> None:
+        # 捕获 SQL 是为了验证真实执行了 pgvector cosine distance，而不只是结果碰巧正确。
         captured_sql.append(statement)
 
     identity = EmbeddingIdentity(provider="task13", model="deterministic", dimension=3)

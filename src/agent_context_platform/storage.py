@@ -33,8 +33,15 @@ class Base(DeclarativeBase):
 
 
 class IndexedItemRecord(Base):
+    """indexed_items 表的 ORM 映射。
+
+    例子：Java 方法会保存为一行，title="PaymentService.build"，
+    path/start_line/end_line/symbol 用来让 Agent 回到源码定位证据。
+    """
+
     __tablename__ = "indexed_items"
 
+    # indexed_items 保存“工程资产本体”和来源定位；embedding 作为可重建派生数据放到 item_embeddings。
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     asset_type: Mapped[str] = mapped_column(String(32), index=True)
     title: Mapped[str] = mapped_column(String(500))
@@ -59,6 +66,7 @@ class IndexedItemRecord(Base):
 
     @classmethod
     def from_indexed_item(cls, item: IndexedItem) -> "IndexedItemRecord":
+        # 这是 domain model -> ORM row 的入口；调试字段丢失时优先看这里的映射。
         source = item.source
         metadata = dict(item.metadata)
         return cls(
@@ -82,6 +90,7 @@ class IndexedItemRecord(Base):
         )
 
     def to_indexed_item(self) -> IndexedItem:
+        # 数据库行重新组装成 Pydantic model，让 API/MCP 层不直接依赖 ORM 对象。
         source = SourceCitation(
             source_type=SourceType(self.source_type),
             repo=self.repo,
@@ -105,6 +114,11 @@ class IndexedItemRecord(Base):
 
 
 class ItemEmbeddingRecord(Base):
+    """item_embeddings 表的 ORM 映射。
+
+    例子：同一个 item_id 可以同时保存 dashscope/1024 维和 fake/3 维两套向量。
+    """
+
     __tablename__ = "item_embeddings"
     __table_args__ = (
         CheckConstraint("dimension > 0", name="ck_item_embeddings_dimension_positive"),
@@ -122,6 +136,7 @@ class ItemEmbeddingRecord(Base):
     provider: Mapped[str] = mapped_column(String(64), primary_key=True)
     model: Mapped[str] = mapped_column(String(255), primary_key=True)
     dimension: Mapped[int] = mapped_column(primary_key=True)
+    # PostgreSQL 使用 pgvector，SQLite 使用 JSON；SQLite 路径只为测试和轻量验证保留。
     embedding: Mapped[list[float]] = mapped_column(EmbeddingType, nullable=False)
 
 
@@ -135,6 +150,7 @@ class IndexedItemRepository:
         embedding: Sequence[float] | None = None,
         embedding_identity: EmbeddingIdentity | None = None,
     ) -> IndexedItem:
+        # 先写基础资产，再写 embedding；这样没有向量时也能完成 keyword/RAG 基础检索。
         record = IndexedItemRecord.from_indexed_item(item)
         self.session.merge(record)
         self.session.flush()
@@ -249,6 +265,7 @@ class IndexedItemRepository:
         if limit <= 0 or not keywords:
             return []
 
+        # keyword 召回先用结构化过滤缩小范围，再做 LIKE；这是 grep-like 检索进入 RAG 的位置。
         statement = _apply_item_filters(
             select(IndexedItemRecord),
             asset_type=asset_type,
@@ -295,6 +312,7 @@ class IndexedItemRepository:
             _validate_embedding_dimension(query_embedding, embedding_identity)
 
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
+            # 真实检索路径使用数据库侧 pgvector 排序，避免把全量向量拉回 Python。
             statement = build_pgvector_search_statement(
                 asset_type=asset_type,
                 path_prefix=path_prefix,
@@ -311,6 +329,7 @@ class IndexedItemRepository:
                 for record, distance in rows
             ]
 
+        # SQLite 没有 pgvector 算子，测试路径退回 Python cosine，便于单元测试不依赖 PostgreSQL。
         candidates = self.list_with_embeddings(
             asset_type=asset_type,
             path_prefix=path_prefix,
@@ -359,6 +378,7 @@ def build_pgvector_search_statement(
     embedding_identity: EmbeddingIdentity | None = None,
     limit: int = 10,
 ):
+    # 单独构造 SQL 方便测试断言是否真的使用 pgvector cosine_distance，而不是误走 Python fallback。
     distance = ItemEmbeddingRecord.embedding.cosine_distance(list(query_embedding)).label(
         "distance"
     )

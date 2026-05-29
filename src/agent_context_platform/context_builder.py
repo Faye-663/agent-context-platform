@@ -17,6 +17,7 @@ class TaskContextBuilder:
         limits: dict[str, int] | None = None,
         constraints: dict[str, Any] | None = None,
     ) -> TaskContext:
+        # Context Builder 是面向 Agent 的聚合层：同一个 task 会分别检索代码、表结构、文档和相似实现。
         limits = limits or {}
         constraints = constraints or {}
 
@@ -24,6 +25,7 @@ class TaskContextBuilder:
         if constraints.get("language"):
             code_filters["language"] = constraints["language"]
 
+        # 代码、DB、文档分开搜，避免一种资产的高分结果挤掉其他必要上下文。
         related_code = self.search_service.search(
             HybridSearchQuery(
                 query=task,
@@ -56,6 +58,7 @@ class TaskContextBuilder:
         )
 
         missing_context = _missing_context(related_code, related_db_schema, related_docs)
+        # 缺失上下文不是异常：返回给调用方，让 Agent 知道哪些部分需要人工补充或扩大检索。
         risks = [
             f"未召回到 {asset_type} 上下文，需要人工确认。"
             for asset_type in missing_context
@@ -93,6 +96,7 @@ def _missing_context(
 
 
 def _unique_citations(results: list[SearchResult]) -> list[SourceCitation]:
+    # TaskContext 顶层 citations 去重，便于 Agent 快速展示所有可追溯来源。
     seen: set[str] = set()
     citations: list[SourceCitation] = []
     for result in results:

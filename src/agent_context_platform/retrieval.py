@@ -15,10 +15,25 @@ from agent_context_platform.storage import IndexedItemRepository
 
 @dataclass(frozen=True)
 class HybridSearchQuery:
+    """一次混合检索请求。
+
+    例子：
+    HybridSearchQuery(
+        query="payment message build",
+        asset_type=AssetType.CODE,
+        filters={"language": "java", "symbol_type": ["method"]},
+    )
+    """
+
+    # query 是用户或 Agent 的自然语言检索词。
     query: str
+    # asset_type 限定检索资产类型，避免代码、表结构和文档互相挤占结果。
     asset_type: AssetType
+    # limit 是最终返回条数；内部候选也用它控制召回上限。
     limit: int = 10
+    # filters 承载结构化条件，例如 language、path_prefix、symbol_type、table。
     filters: dict[str, Any] = field(default_factory=dict)
+    # query_embedding 可由调用方传入；不传时会尝试用 embedding_provider 生成。
     query_embedding: list[float] | None = None
 
 
@@ -32,6 +47,7 @@ class HybridSearchService:
         self.embedding_provider = embedding_provider
 
     def search(self, search_query: HybridSearchQuery) -> list[SearchResult]:
+        # search 是 RAG 检索编排层：它不解析文件、不直接写库，只合并 keyword 与 vector 候选。
         query = search_query.query.strip()
         if not query:
             raise ValueError("query must not be empty")
@@ -41,6 +57,7 @@ class HybridSearchService:
         query_embedding = search_query.query_embedding
         embedding_identity = None
         if self.embedding_provider is not None:
+            # 有 provider 时必须绑定 provider/model/dimension，避免拿不同模型的向量互相比。
             embedding_identity = self.embedding_provider.identity
             if query_embedding is None:
                 query_embedding = self.embedding_provider.embed_texts([query])[0]
@@ -70,6 +87,7 @@ class HybridSearchService:
                 candidates[item.id] = item
                 candidate_vectors[item.id] = vector_score
         elif query_embedding is not None:
+            # 兼容手动传 query_embedding 但没有 provider 的测试场景；生产路径应优先带 identity。
             for item, embedding in self.repository.list_with_embeddings(
                 asset_type=search_query.asset_type,
                 path_prefix=filters.get("path_prefix"),
@@ -81,6 +99,7 @@ class HybridSearchService:
                 candidates[item.id] = item
                 candidate_vectors[item.id] = _vector_score(query_embedding, embedding)
 
+        # keyword 召回始终执行，用来补足“向量相似但关键词不明显”或“尚未生成 embedding”的资产。
         for item in self.repository.list_keyword_candidates(
             asset_type=search_query.asset_type,
             path_prefix=filters.get("path_prefix"),
@@ -96,6 +115,7 @@ class HybridSearchService:
         for item in candidates.values():
             keyword_score, matched_tokens = _keyword_score(item, tokens)
             vector_score = candidate_vectors.get(item.id, 0.0)
+            # 当前权重偏向 keyword，便于早期工程检索保持可解释；后续评测可再调整。
             score = round(keyword_score * 0.7 + vector_score * 0.3, 6)
             if score <= 0:
                 continue
@@ -139,6 +159,7 @@ def _query_tokens(text: str) -> set[str]:
 def _keyword_score(item: Any, tokens: set[str]) -> tuple[float, list[str]]:
     if not tokens:
         return 0.0, []
+    # keyword 分数只看 IndexedItem 的可解释字段，不把 source 行号等定位信息当作相关性信号。
     haystack = " ".join(
         [
             item.title,
