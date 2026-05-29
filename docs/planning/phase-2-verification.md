@@ -2,7 +2,10 @@
 
 ## 验证结论
 
-阶段二离线索引器已完成一次实际落盘验证。验证不是只运行单元测试，而是使用真实文件路径写入 Java、SQL、Markdown 三类样本，从磁盘读取内容后执行索引，随后写入现有 `IndexedItemRepository` 并重新读回断言。
+阶段二离线索引器当前有两类验证入口：
+
+1. 纯 `pytest` 单元测试，使用进程内 SQLite，适合快速回归。
+2. `scripts/verify_phase2_e2e_sqlite.py`，使用 `.local/phase2-e2e` 下的正式 Java、SQL、Markdown 样本文件，并写入可持久化 SQLite 文件，适合人工查看和端到端核对。
 
 本次验证结论：通过。
 
@@ -21,42 +24,64 @@
 - embedding 生成与向量维度校验。
 - MCP 包装层。
 
-阶段三已补充真实 PostgreSQL + pgvector 写读验证、Hybrid Search、Context API 和 `build-task-context` 运行时验证；当前仍未实现 embedding provider 与 MCP 包装层。
+阶段三已补充真实 PostgreSQL + pgvector 写读验证、Hybrid Search、Context API 和 `build-task-context` 运行时验证。embedding provider 与 MCP 包装层在后续阶段验证。
 
 ## 验证命令
 
-单元测试：
+### 纯 pytest 进程内验证
+
+该路径只验证 indexer 和 repository 行为，SQLite 使用 `sqlite:///:memory:`，测试结束后不会留下数据库文件。
 
 ```powershell
-$env:UV_CACHE_DIR = "D:\Code\GitHub\agent-context-platform-phase-2\.uv-cache"
-$env:UV_PYTHON_INSTALL_DIR = "D:\Code\GitHub\agent-context-platform-phase-2\.uv-python"
-uv run --extra test pytest -q
+$env:UV_CACHE_DIR = "D:\Code\GitHub\agent-context-platform\.uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = "D:\Code\GitHub\agent-context-platform\.uv-python"
+$env:UV_PROJECT_ENVIRONMENT = "D:\Code\GitHub\agent-context-platform\.venv"
+uv run --extra test pytest .\tests\test_indexers.py
 ```
 
-实际落盘验证使用一次性 Python 脚本执行，脚本动作如下：
+### 持久化 SQLite 验证
 
-1. 在 `.local/phase2-e2e` 下写入脱敏 Java、SQL、Markdown 样本文件。
+该路径使用 `.local/phase2-e2e` 下的正式样本文件：
+
+- `.local/phase2-e2e/src/main/java/example/PaymentMessageBuilder.java`
+- `.local/phase2-e2e/schema/payment.sql`
+- `.local/phase2-e2e/docs/payment.md`
+
+脚本会写入 `.local/phase2-e2e/indexed-items.sqlite`，可通过 IDE SQLite 数据源或 SQLite 客户端查看。
+
+```powershell
+$env:UV_CACHE_DIR = "D:\Code\GitHub\agent-context-platform\.uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = "D:\Code\GitHub\agent-context-platform\.uv-python"
+$env:UV_PROJECT_ENVIRONMENT = "D:\Code\GitHub\agent-context-platform\.venv"
+uv run python .\scripts\verify_phase2_e2e_sqlite.py
+```
+
+脚本动作如下：
+
+1. 检查 `.local/phase2-e2e` 下 Java、SQL、Markdown 样本文件是否存在。
 2. 从磁盘读取样本内容。
 3. 调用 `index_java_source`、`index_sql_ddl`、`index_markdown_document`。
 4. 使用 SQLite 创建 `indexed_items` 表。
-5. 调用 `IndexedItemRepository.save()` 写入全部索引结果。
-6. 重新查询 `code`、`db_schema`、`doc` 三类结果并断言关键字段。
+5. 清空索引相关表，避免历史本地数据影响验证计数。
+6. 调用 `IndexedItemRepository.save()` 写入全部索引结果。
+7. 保留 SQLite 文件本身，便于 IDE 或 SQLite 客户端查看。
+8. 重新查询 `code`、`db_schema`、`doc` 三类结果并断言关键字段。
 
 ## 验证输出
 
-单元测试输出：
+纯 pytest 进程内验证输出：
 
 ```text
-11 passed
+4 passed
 ```
 
-实际落盘验证输出：
+持久化 SQLite 验证输出：
 
 ```json
 {
   "status": "PASS",
-  "sample_root": "D:\\Code\\GitHub\\agent-context-platform-phase-2\\.local\\phase2-e2e",
-  "sqlite_db": "D:\\Code\\GitHub\\agent-context-platform-phase-2\\.local\\phase2-e2e\\indexed-items.sqlite",
+  "sample_root": "D:\\Code\\GitHub\\agent-context-platform\\.local\\phase2-e2e",
+  "sqlite_db": "D:\\Code\\GitHub\\agent-context-platform\\.local\\phase2-e2e\\indexed-items.sqlite",
   "indexed_total": 9,
   "persisted_counts": {
     "code": 2,
