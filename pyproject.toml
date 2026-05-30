@@ -21,6 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
+acp-index = "agent_context_platform.index_cli:main"
 acp-mcp-server = "agent_context_platform.mcp_server:main"
 
 [project.optional-dependencies]
