@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope embedding provider、批量 embedding 写入能力与数据库侧 pgvector 相似度排序。
+项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope embedding provider、批量 embedding 写入能力、数据库侧 pgvector 相似度排序与真实项目初始化索引 CLI。
 
 已实现范围：
 
@@ -27,13 +27,13 @@
 - 多模型 embedding 存储：`item_embeddings` 按 `provider`、`model`、`dimension` 保存 embedding，避免把当前模型维度固定进 `indexed_items` 主表。
 - 批量 embedding 写入：支持把 Java、SQL、Markdown 三类离线索引结果生成 embedding 后落库。
 - 数据库侧 pgvector 相似度排序：provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 的 `<=>` 完成 query embedding 相似度排序，并保留关键词候选的有界合并。
+- 初始化索引 CLI：提供 `acp-index --root <path>`，支持 `dry-run`、include/exclude、显式 repo 标识、复用 `ACP_DATABASE_URL` 写库和显式 `--with-embedding` 写入 embedding。
 
 尚不满足真实可用 MVP 的项：
 
-- 面向真实项目的通用初始化索引 CLI。当前只有索引器、repository、embedding 批量写入能力和验证脚本，尚没有可对任意工程目录执行 `dry-run`、过滤、入库和摘要输出的正式入口。
 - 基于真实脱敏 Java 项目索引库的召回评测。
 
-阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入和数据库侧 pgvector 排序；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要提供通用初始化索引 CLI，并用真实脱敏 Java 项目索引库验证召回质量。
+阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入、数据库侧 pgvector 排序和通用初始化索引 CLI；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
 
 ## 文档导航
 
@@ -46,7 +46,7 @@
 | [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
 | [阶段三实际验证记录](docs/planning/phase-3-verification.md) | 记录核心检索流程、接口和真实数据库验证结果 |
 | [阶段四实际验证记录](docs/planning/phase-4-verification.md) | 记录 MCP 接入、固定评测集和回归脚本验证结果 |
-| [阶段五实际验证记录](docs/planning/phase-5-verification.md) | 记录 ASGI 入口、运行配置、embedding provider、批量写入和 pgvector 排序验证结果 |
+| [阶段五实际验证记录](docs/planning/phase-5-verification.md) | 记录 ASGI 入口、运行配置、embedding provider、批量写入、pgvector 排序和初始化索引 CLI 验证结果 |
 | [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
 | [MVP 固定评测样本](docs/evaluation/mvp-evaluation-samples.json) | 保存阶段四脱敏半真实任务样本 |
 | [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
@@ -127,12 +127,12 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 | 变量 | 用途 | 默认行为 |
 |---|---|---|
-| `ACP_DATABASE_URL` | 指定 Alembic 迁移和长期运行 Context API 使用的数据库连接 | 固定 ASGI 入口启动时必填 |
+| `ACP_DATABASE_URL` | 指定 Alembic 迁移、初始化索引 CLI 和长期运行 Context API 使用的数据库连接 | 固定 ASGI 入口和 `acp-index` 写库时必填 |
 | `ACP_ENV` | 标识运行环境 | 默认 `local` |
 | `ACP_LOG_LEVEL` | 指定应用日志级别 | 默认 `INFO` |
 | `ACP_SQL_ECHO` | 控制 SQLAlchemy 是否输出 SQL 日志 | 默认 `false` |
 | `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
-| `ACP_EMBEDDING_*` | DashScope native embedding provider 配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数 |
+| `ACP_EMBEDDING_*` | DashScope native embedding provider 配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
 
 ## 快速开始
 
@@ -177,13 +177,26 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    uv run --extra test pytest
    ```
 
-7. 启动长期运行的 Context API：
+7. 初始化工程索引。先用 `dry-run` 确认扫描边界，再写入与 Context API 相同的 `ACP_DATABASE_URL`：
+
+   ```powershell
+   uv run acp-index --root D:\Code\YourProject --dry-run
+   uv run acp-index --root D:\Code\YourProject --repo your-project
+   ```
+
+   如需同时写入 embedding，必须先补齐 `ACP_EMBEDDING_*`，并显式传入 `--with-embedding`：
+
+   ```powershell
+   uv run acp-index --root D:\Code\YourProject --repo your-project --with-embedding
+   ```
+
+8. 启动长期运行的 Context API：
 
    ```powershell
    uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000 --env-file .env
    ```
 
-8. 另开一个 PowerShell 终端，启动 MCP server wrapper：
+9. 另开一个 PowerShell 终端，启动 MCP server wrapper：
 
    ```powershell
    $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
@@ -196,7 +209,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
 
-当前仓库尚未提供通用初始化索引 CLI。真实项目入库入口应作为离线批处理命令补齐，而不是放进 Context API 或 MCP server；第一版 P0 只要求能扫描单个工程目录、复用 `ACP_DATABASE_URL`、支持 `dry-run`、include/exclude、稳定 repo 标识和结果摘要。
+真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
 ## 本地验证
 
@@ -208,9 +221,9 @@ $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 uv run --extra test pytest
 ```
 
-当前任务 13 后验证结果：
+当前任务 14 后验证结果：
 
-- `uv run --extra test pytest`：`48 passed`
+- `uv run --extra test pytest`：`57 passed`
 
 ### 固定评测集回归
 
@@ -285,6 +298,30 @@ uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
 - `saved_count=3`
 - `embedding_counts=code:1,db_schema:1,doc:1`
 - query embedding 检索返回非零 vector score
+
+### 任务 14 初始化索引 CLI 验证
+
+`acp-index` 会输出 JSON 摘要，包含 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`elapsed_seconds` 和 `failures`。
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+uv run acp-index --root . --dry-run
+```
+
+写库时必须设置 `ACP_DATABASE_URL`，该数据库应与 Context API 启动时读取的数据库一致：
+
+```powershell
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
+uv run alembic upgrade head
+uv run acp-index --root D:\Code\YourProject --repo your-project
+```
+
+常用过滤参数：
+
+```powershell
+uv run acp-index --root D:\Code\YourProject --include "**/*.java" --exclude "target/**" --dry-run
+```
 
 ### 任务 13 pgvector 排序验证
 
