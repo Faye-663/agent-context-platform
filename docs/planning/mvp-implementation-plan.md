@@ -324,19 +324,21 @@
 
 **验收标准：**
 
-- [ ] 提供稳定命令入口，例如 `acp-index --root <path>`。
-- [ ] 复用 `ACP_DATABASE_URL`，确保 CLI 写入的数据库与 Context API 读取的数据库一致。
-- [ ] 支持 `dry-run`，不写库时输出扫描文件数、可索引文件数和预计索引项数量。
-- [ ] 支持 include / exclude 规则，并默认排除 `.git`、`target`、`build`、`dist`、`node_modules`、`.venv`、`__pycache__`。
-- [ ] 支持显式 repo 标识；未传入时使用根目录名，并在摘要中打印最终 repo。
-- [ ] 完成后输出 repo、database、files scanned、files indexed、items written、items failed、embedding written 和 elapsed time。
+- [x] 提供稳定命令入口，例如 `acp-index --root <path>`。
+- [x] 复用 `ACP_DATABASE_URL`，确保 CLI 写入的数据库与 Context API 读取的数据库一致。
+- [x] 支持 `dry-run`，不写库时输出扫描文件数、可索引文件数和预计索引项数量。
+- [x] 支持 include / exclude 规则，并默认排除 `.git`、`target`、`build`、`dist`、`node_modules`、`.venv`、`__pycache__`。
+- [x] 支持显式 repo 标识；未传入时使用根目录名，并在摘要中打印最终 repo。
+- [x] 完成后输出 repo、database、files scanned、files indexed、items written、items failed、embedding written 和 elapsed time。
 
 **验证方式：**
 
-- [ ] 使用临时样本目录验证 Java、SQL、Markdown 三类文件会被扫描、解析并写入 repository。
-- [ ] `dry-run` 不产生数据库写入。
-- [ ] include / exclude 能稳定过滤目标文件和构建产物目录。
-- [ ] CLI 输出摘要可用于定位失败文件和确认写入边界。
+- [x] 使用临时样本目录验证 Java、SQL、Markdown 三类文件会被扫描、解析并写入 repository。
+- [x] `dry-run` 不产生数据库写入。
+- [x] include / exclude 能稳定过滤目标文件和构建产物目录。
+- [x] CLI 输出摘要可用于定位失败文件和确认写入边界。
+
+阶段五实际验证记录见 [阶段五实际验证记录](phase-5-verification.md)。当前 CLI 固定为 `acp-index`，支持 `dry-run`、include/exclude、显式 repo 标识、复用 `ACP_DATABASE_URL` 写入 repository；embedding 只有显式传入 `--with-embedding` 时才会写入。
 
 **非目标：**
 
@@ -373,8 +375,8 @@
 ### 检查点：真实可用 MVP 收口
 
 - [x] Context API 可以通过固定 ASGI 入口长期运行。
-- [ ] 真实项目初始化索引 CLI 可以扫描工程目录、写入索引并生成可排查摘要。
-- [ ] 真实索引流程可以生成并保存 embedding。
+- [x] 真实项目初始化索引 CLI 可以扫描工程目录、写入索引并生成可排查摘要。
+- [x] 真实索引流程可以生成并保存 embedding。
 - [x] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
 - [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
 
