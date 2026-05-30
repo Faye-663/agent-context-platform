@@ -31,6 +31,9 @@ Context Builder
 Index Store: PostgreSQL + pgvector
         ^
         |
+Index CLI (offline batch)
+        |
+        v
 Offline Indexers
         |
         +-- Java Indexer
@@ -55,6 +58,7 @@ MVP 技术栈以 Python glue code 为主，优先降低本地开发、离线索�
 | SQL 解析 | sqlglot | 首版解析 SQL DDL，抽取 table、column、index 和来源信息。 |
 | Markdown 解析 | markdown-it-py + line range glue code | 使用成熟 Markdown parser 处理标题和正文结构，补充行号定位逻辑。 |
 | 索引模式 | Offline Indexing | MVP 使用离线索引和手动重建，不做实时增量索引。 |
+| 初始化入口 | Index CLI | 真实项目入库通过离线批处理 CLI 完成；HTTP API 和 MCP server 不承担初始化入库职责。 |
 | LLM | OpenAI-compatible 外部服务 | LLM 不作为检索必须依赖，后续可用于摘要、解释或评测辅助。 |
 | Embedding | DashScope native EmbeddingProvider | embedding 与 LLM 分开选择；provider 通过 `base_url`、`api_key`、`model`、`dimension`、`batch_size` 配置。 |
 | 本地依赖 | 本机 PostgreSQL、pgvector extension | 本地开发默认使用本机安装，不把 Docker Compose 作为默认路径。 |
@@ -68,6 +72,8 @@ Embedding 首版使用 DashScope native 多模态 embedding API。因为向量�
 ```text
 工程资产
     ↓
+Index CLI 扫描 root、应用 include/exclude、确定 repo 标识
+    ↓
 Java / SQL / Markdown Indexer
     ↓
 结构化解析
@@ -80,6 +86,8 @@ Java / SQL / Markdown Indexer
 ```
 
 MVP 使用离线索引，不做实时增量索引。这样可以先验证召回质量和上下文组织方式，避免把复杂度投入到非核心链路。
+
+Index CLI 是离线批处理编排层，负责把文件扫描、索引器、repository 和可选 embedding 写入串起来。P0 必须支持 `dry-run`、include/exclude、复用 `ACP_DATABASE_URL`、稳定 repo 标识和结果摘要；不在 P0 中实现实时监听、复杂增量同步或 HTTP 入库接口。
 
 ### 查询流程
 

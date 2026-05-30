@@ -318,7 +318,38 @@
 
 **预估范围：** 中
 
-### 任务 14：真实脱敏 Java 项目索引库召回评测
+### 任务 14：真实项目初始化索引 CLI P0
+
+**说明：** 提供面向真实工程目录的离线初始化索引 CLI，把 Java、SQL、Markdown 文件扫描、索引器解析、repository 写入和可选 embedding 写入串成一个可重复执行的入口。
+
+**验收标准：**
+
+- [ ] 提供稳定命令入口，例如 `acp-index --root <path>`。
+- [ ] 复用 `ACP_DATABASE_URL`，确保 CLI 写入的数据库与 Context API 读取的数据库一致。
+- [ ] 支持 `dry-run`，不写库时输出扫描文件数、可索引文件数和预计索引项数量。
+- [ ] 支持 include / exclude 规则，并默认排除 `.git`、`target`、`build`、`dist`、`node_modules`、`.venv`、`__pycache__`。
+- [ ] 支持显式 repo 标识；未传入时使用根目录名，并在摘要中打印最终 repo。
+- [ ] 完成后输出 repo、database、files scanned、files indexed、items written、items failed、embedding written 和 elapsed time。
+
+**验证方式：**
+
+- [ ] 使用临时样本目录验证 Java、SQL、Markdown 三类文件会被扫描、解析并写入 repository。
+- [ ] `dry-run` 不产生数据库写入。
+- [ ] include / exclude 能稳定过滤目标文件和构建产物目录。
+- [ ] CLI 输出摘要可用于定位失败文件和确认写入边界。
+
+**非目标：**
+
+- [ ] 不实现实时索引或 watch mode。
+- [ ] 不实现复杂增量同步。
+- [ ] 不新增 HTTP ingest endpoint。
+- [ ] 不引入独立配置文件格式。
+
+**依赖：** 任务 2、任务 3、任务 4、任务 5、任务 11、任务 12
+
+**预估范围：** 中
+
+### 任务 15：真实脱敏 Java 项目索引库召回评测
 
 **说明：** 选择一个真实脱敏 Java 项目，完成 Java、SQL、Markdown 离线索引、embedding 写入和 `build-task-context` 召回评测。
 
@@ -335,13 +366,14 @@
 - [ ] 运行固定评测脚本并输出通过 / 失败、失败样本详情和关键指标。
 - [ ] 抽查 `build-task-context` 返回的来源引用可以定位到真实脱敏项目文件、行号、表或文档章节。
 
-**依赖：** 任务 11、任务 12、任务 13
+**依赖：** 任务 11、任务 12、任务 13、任务 14
 
 **预估范围：** 中
 
 ### 检查点：真实可用 MVP 收口
 
 - [x] Context API 可以通过固定 ASGI 入口长期运行。
+- [ ] 真实项目初始化索引 CLI 可以扫描工程目录、写入索引并生成可排查摘要。
 - [ ] 真实索引流程可以生成并保存 embedding。
 - [x] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
 - [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
@@ -359,5 +391,6 @@
 ## 待确认问题
 
 - 真实评测语料使用哪个脱敏 Java 项目。
+- 初始化索引 CLI 第一版命令名是否固定为 `acp-index`。
 - embedding 首版具体服务、模型名、向量维度和 batch size。
 - OpenAI-compatible 外部 LLM 的 provider、模型名和配置方式。

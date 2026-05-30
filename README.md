@@ -30,9 +30,10 @@
 
 尚不满足真实可用 MVP 的项：
 
+- 面向真实项目的通用初始化索引 CLI。当前只有索引器、repository、embedding 批量写入能力和验证脚本，尚没有可对任意工程目录执行 `dry-run`、过滤、入库和摘要输出的正式入口。
 - 基于真实脱敏 Java 项目索引库的召回评测。
 
-阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入和数据库侧 pgvector 排序；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
+阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入和数据库侧 pgvector 排序；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要提供通用初始化索引 CLI，并用真实脱敏 Java 项目索引库验证召回质量。
 
 ## 文档导航
 
@@ -194,6 +195,8 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
 
 MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
+
+当前仓库尚未提供通用初始化索引 CLI。真实项目入库入口应作为离线批处理命令补齐，而不是放进 Context API 或 MCP server；第一版 P0 只要求能扫描单个工程目录、复用 `ACP_DATABASE_URL`、支持 `dry-run`、include/exclude、稳定 repo 标识和结果摘要。
 
 ## 本地验证
 
