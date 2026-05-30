@@ -81,6 +81,27 @@ Agent 调用 build-task-context
 | SQL 表结构 | table、column、DDL、index | 支持数据模型与字段约束理解 |
 | Markdown 文档 | heading path、正文片段、file path、line range | 支持设计方案和开发规范检索 |
 
+## 初始化索引 CLI P0 需求
+
+真实项目可用 MVP 需要一个通用离线 CLI，把工程资产初始化写入检索库。该 CLI 不属于查询链路；HTTP API 和 MCP server 继续只负责检索与上下文构建。
+
+P0 范围固定为：
+
+- 提供单一索引入口，例如 `acp-index --root <path>`，递归扫描一个工程目录。
+- 复用运行时数据库配置，至少支持通过 `ACP_DATABASE_URL` 指向与 Context API 相同的 PostgreSQL / pgvector 数据库。
+- 支持 `dry-run`，在不写库的情况下输出扫描文件数、可索引文件数和预计生成的 Java、SQL、Markdown 索引项数量。
+- 支持 include / exclude 规则，默认排除 `.git`、`target`、`build`、`dist`、`node_modules`、`.venv`、`__pycache__` 等非工程资产目录。
+- 支持显式 repo 标识；未传入时可以使用根目录名，但必须在输出中打印最终使用的 repo。
+- 执行结束输出可排查摘要，至少包含 repo、database、files scanned、files indexed、items written、items failed、embedding written 和 elapsed time。
+
+P0 不要求：
+
+- 实时索引或 watch mode。
+- 复杂增量同步。
+- HTTP ingest endpoint。
+- 多仓库关联。
+- 独立配置文件格式。
+
 ## 明确排除项
 
 | 不做项 | 原因 |

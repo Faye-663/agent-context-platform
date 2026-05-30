@@ -147,4 +147,5 @@ uv run --extra test python scripts/verify_task13_pgvector_search.py
 
 ## 未覆盖边界
 
-- 真实脱敏 Java 项目索引库召回评测仍属于任务 14。
+- 真实项目初始化索引 CLI P0 仍属于任务 14。
+- 真实脱敏 Java 项目索引库召回评测仍属于任务 15。
