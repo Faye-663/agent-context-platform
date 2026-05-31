@@ -388,7 +388,7 @@
 | 真实项目 SQL dump 使用 MySQL 方言 | 高 | `acp-index` 在 jshERP `jsh_erp.sql` 上已暴露 MySQL 语法解析失败；任务 15 前需要支持 MySQL DDL 方言或 dump 预处理，并补充回归测试 |
 | 召回结果看似相关但工程上不可用 | 高 | 评测集必须标注期望来源引用，不只看自然语言相似 |
 | MCP 和 HTTP 行为漂移 | 中 | MCP 只调用 HTTP 接口，不复制检索逻辑 |
-| 嵌入模型服务不稳定 | 中 | embedding provider 可配置，错误路径必须可诊断 |
+| 嵌入模型服务不稳定 | 中 | embedding provider 可配置，错误路径必须可诊断；当前只实现 DashScope native provider，后续接入 OpenAI/Jina 需要新增 OpenAI-compatible provider 并重建对应向量数据 |
 | MVP 范围膨胀 | 高 | 以 ADR 中排除项为准，新增范围需新增 ADR |
 
 ## 待确认问题

@@ -33,6 +33,7 @@
 
 - 基于真实脱敏 Java 项目索引库的召回评测。
 - 真实 MySQL dump 风格 SQL 的索引兼容性。jshERP 的 `jsh_erp.sql` 已暴露当前 SQL indexer 对 MySQL `SET NAMES`、反引号标识符、`AUTO_INCREMENT`、`COMMENT` 等语法不兼容，需要在任务 15 前作为真实项目修复项处理。
+- 多 embedding provider 适配。当前运行时只实例化 DashScope native provider；后续如需接入 OpenAI 或 Jina，应新增 OpenAI-compatible provider 选择层，并明确切换 provider/model/dimension 后必须重新生成对应 `item_embeddings`，不能混用不同向量空间。
 
 阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入、数据库侧 pgvector 排序和通用初始化索引 CLI；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
 
@@ -216,7 +217,7 @@ MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP �
 
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
-当前任务 15 真实项目验证已暴露一个后续修复项：jshERP 的 MySQL dump SQL 文件无法被现有 PostgreSQL 方言 SQL indexer 完整解析。面向 MySQL 项目验收前，需要补齐 MySQL DDL 方言支持或 dump 预处理，并用代表性 MySQL DDL 样本增加回归测试。
+当前任务 15 真实项目验证已暴露后续修复项：jshERP 的 MySQL dump SQL 文件无法被现有 PostgreSQL 方言 SQL indexer 完整解析。面向 MySQL 项目验收前，需要补齐 MySQL DDL 方言支持或 dump 预处理，并用代表性 MySQL DDL 样本增加回归测试。另一个后续项是 embedding provider 扩展：当前实现只适配 DashScope native API；如果要使用 OpenAI 或 Jina，需要实现 OpenAI-compatible 请求/响应解析，并按 provider/model/dimension 重建 embedding 数据。
 
 ## 本地验证
 
