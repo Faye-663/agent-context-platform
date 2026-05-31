@@ -215,3 +215,6 @@ uv run acp-index --root D:\Code\YourProject --repo your-project --with-embedding
 ## 未覆盖边界
 
 - 真实脱敏 Java 项目索引库召回评测仍属于任务 15。
+- 真实项目 SQL 方言兼容性仍需修复。jshERP 的 `jsh_erp.sql` 是 MySQL dump 风格，包含 `SET NAMES utf8mb4`、`DROP TABLE IF EXISTS`、反引号标识符、`AUTO_INCREMENT`、列 `COMMENT` 和 `bigint(0)` 等语法；当前 SQL indexer 按 PostgreSQL DDL 解析，会在 `stage=index` 失败。后续需要支持 MySQL 方言或对 MySQL dump 做预处理，并补充代表性回归测试。
+- Alembic 和 `acp-index` 当前只读取进程环境变量，不会自动加载 `.env`。真实验证命令必须先在当前 PowerShell 进程加载 `.env` 或显式设置 `$env:ACP_DATABASE_URL`、`$env:ACP_EMBEDDING_*`；`uvicorn --env-file .env` 不能替代迁移和 CLI 的环境加载。
+- 当前 embedding provider 实现只覆盖 DashScope native API。后续如果要支持 OpenAI 或 Jina，应新增 provider 选择配置和 OpenAI-compatible provider 实现；虽然 OpenAI/Jina 的 `/v1/embeddings` API 形状接近，但它们与 DashScope/OpenAI/Jina 各自的向量空间不兼容，切换 provider/model/dimension 后必须重新生成对应 `item_embeddings`。
