@@ -16,7 +16,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from agent_context_platform.embeddings import (
+    EmbeddingDimensionError,
     EmbeddingProvider,
+    EmbeddingProviderError,
     embed_and_save_items,
 )
 from agent_context_platform.indexers import (
@@ -148,6 +150,10 @@ def run(
             items=items,
             embedding_provider=embedding_provider,
         )
+    except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
+        failures.append(Failure(path=None, stage="embedding", error=str(exc)))
+        items_written = 0
+        embedding_written = 0
     except (RuntimeConfigError, ValueError) as exc:
         failures.append(Failure(path=None, stage="config", error=str(exc)))
         items_written = 0

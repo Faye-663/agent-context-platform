@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from agent_context_platform.embeddings import EmbeddingIdentity
+from agent_context_platform.embeddings import EmbeddingIdentity, EmbeddingProviderError
 from agent_context_platform.index_cli import run
 from agent_context_platform.models import AssetType
 from agent_context_platform.storage import Base, IndexedItemRepository
@@ -24,6 +24,14 @@ class FakeEmbeddingProvider:
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         self.requests.append(list(texts))
         return [[1.0, 0.0, 0.0] for _text in texts]
+
+
+class FailingEmbeddingProvider:
+    identity = EmbeddingIdentity(provider="fake", model="task14", dimension=3)
+    batch_size = 2
+
+    def embed_texts(self, _texts: Sequence[str]) -> list[list[float]]:
+        raise EmbeddingProviderError("simulated provider failure")
 
 
 def test_dry_run_scans_indexable_files_without_database_write(tmp_path: Path) -> None:
@@ -219,6 +227,33 @@ def test_with_embedding_requires_complete_embedding_configuration(tmp_path: Path
     assert exit_code == 1
     assert summary["failures"][0]["stage"] == "config"
     assert "ACP_EMBEDDING_API_KEY" in summary["failures"][0]["error"]
+
+
+def test_with_embedding_reports_provider_failure_without_traceback(tmp_path: Path) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    output = StringIO()
+
+    exit_code = run(
+        ["--root", str(sample_root), "--with-embedding"],
+        environ={
+            "ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}",
+            "ACP_EMBEDDING_BASE_URL": "https://embedding.example.test",
+            "ACP_EMBEDDING_API_KEY": "secret",
+            "ACP_EMBEDDING_MODEL": "task14",
+            "ACP_EMBEDDING_DIMENSION": "3",
+            "ACP_EMBEDDING_BATCH_SIZE": "2",
+        },
+        stdout=output,
+        embedding_provider_factory=lambda _settings: FailingEmbeddingProvider(),
+    )
+
+    summary = _summary(output)
+    assert exit_code == 1
+    assert summary["items_written"] == 0
+    assert summary["embedding_written"] == 0
+    assert summary["failures"][0]["stage"] == "embedding"
+    assert "simulated provider failure" in summary["failures"][0]["error"]
 
 
 def _sample_project(tmp_path: Path) -> Path:

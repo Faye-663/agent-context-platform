@@ -152,11 +152,11 @@ def test_openai_compatible_provider_posts_embeddings_request_and_parses_vectors(
 
 
 def test_jina_provider_uses_document_and_query_tasks() -> None:
-    seen_tasks: list[str] = []
+    seen_payloads: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
-        seen_tasks.append(payload["task"])
+        seen_payloads.append(payload)
         embedding = (
             [1.0, 0.0, 0.0]
             if payload["task"] == "retrieval.passage"
@@ -191,7 +191,11 @@ def test_jina_provider_uses_document_and_query_tasks() -> None:
     )
     assert provider.embed_texts(["document"]) == [[1.0, 0.0, 0.0]]
     assert provider.embed_query("query") == [0.0, 1.0, 0.0]
-    assert seen_tasks == ["retrieval.passage", "retrieval.query"]
+    assert [payload["task"] for payload in seen_payloads] == [
+        "retrieval.passage",
+        "retrieval.query",
+    ]
+    assert [payload["truncate"] for payload in seen_payloads] == [True, True]
 
 
 def test_openai_compatible_provider_reports_provider_failure() -> None:
@@ -212,6 +216,35 @@ def test_openai_compatible_provider_reports_provider_failure() -> None:
     )
 
     with pytest.raises(EmbeddingProviderError, match="400.*invalid_request"):
+        provider.embed_texts(["alpha"])
+
+
+def test_jina_provider_reports_detail_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "detail": {
+                    "code": "INPUT_TOKEN_LIMIT_EXCEEDED",
+                    "message": "Input text exceeds the model limit.",
+                }
+            },
+        )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        provider="jina",
+        base_url="https://api.jina.ai/v1",
+        api_key="test-key",
+        model="jina-embeddings-v3",
+        dimension=3,
+        batch_size=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(
+        EmbeddingProviderError,
+        match="INPUT_TOKEN_LIMIT_EXCEEDED.*Input text exceeds",
+    ):
         provider.embed_texts(["alpha"])
 
 

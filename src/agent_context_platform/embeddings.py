@@ -226,6 +226,9 @@ class OpenAICompatibleEmbeddingProvider:
         if task is not None:
             # Jina 的 task/mode 用于区分待检索文档和查询文本；OpenAI 原生不设置该字段。
             payload["task"] = task
+        if self.provider == "jina":
+            # Jina 对单条输入有 token 上限；真实 Java class item 可能很长，先让 provider 截断而不是整批失败。
+            payload["truncate"] = True
         try:
             response = self._client.post(
                 self.endpoint,
@@ -383,14 +386,28 @@ def _provider_error(response: httpx.Response) -> tuple[str, str]:
         return "unknown", response.text
 
     if isinstance(payload, dict):
+        error = payload.get("error")
+        detail = payload.get("detail")
         code = str(
-            payload.get("code") or payload.get("error", {}).get("code") or "unknown"
+            payload.get("code")
+            or _mapping_value(error, "code")
+            or _mapping_value(detail, "code")
+            or "unknown"
         )
         message = str(
-            payload.get("message") or payload.get("error", {}).get("message") or ""
+            payload.get("message")
+            or _mapping_value(error, "message")
+            or _mapping_value(detail, "message")
+            or (detail if isinstance(detail, str) else "")
         )
         return code, message
     return "unknown", str(payload)
+
+
+def _mapping_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return None
 
 
 def _validate_embedding_dimension(
