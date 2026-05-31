@@ -60,7 +60,7 @@ class HybridSearchService:
             # 有 provider 时必须绑定 provider/model/dimension，避免拿不同模型的向量互相比。
             embedding_identity = self.embedding_provider.identity
             if query_embedding is None:
-                query_embedding = self.embedding_provider.embed_texts([query])[0]
+                query_embedding = _embed_query_text(self.embedding_provider, query)
             elif len(query_embedding) != embedding_identity.dimension:
                 raise EmbeddingDimensionError(
                     "query embedding dimension mismatch for "
@@ -145,6 +145,13 @@ def _as_string_list(value: Any) -> list[str] | None:
     if isinstance(value, str):
         return [value]
     return [str(item) for item in value]
+
+
+def _embed_query_text(provider: EmbeddingProvider, query: str) -> list[float]:
+    embed_query = getattr(provider, "embed_query", None)
+    if callable(embed_query):
+        return list(embed_query(query))
+    return provider.embed_texts([query])[0]
 
 
 def _query_tokens(text: str) -> set[str]:

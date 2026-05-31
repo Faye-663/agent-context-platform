@@ -16,7 +16,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from agent_context_platform.embeddings import (
-    DashScopeEmbeddingProvider,
     EmbeddingProvider,
     embed_and_save_items,
 )
@@ -29,6 +28,7 @@ from agent_context_platform.models import IndexedItem
 from agent_context_platform.runtime import (
     RuntimeConfigError,
     RuntimeSettings,
+    build_embedding_provider,
     load_runtime_settings,
 )
 from agent_context_platform.storage import Base, IndexedItemRepository, make_engine
@@ -296,13 +296,7 @@ def _build_embedding_provider(
         raise RuntimeConfigError(
             "--with-embedding requires complete ACP_EMBEDDING_* configuration"
         )
-    return DashScopeEmbeddingProvider(
-        base_url=settings.embedding.base_url,
-        api_key=settings.embedding.api_key,
-        model=settings.embedding.model,
-        dimension=settings.embedding.dimension,
-        batch_size=settings.embedding.batch_size,
-    )
+    return build_embedding_provider(settings.embedding)
 
 
 def _write_items(
