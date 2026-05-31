@@ -60,10 +60,10 @@ MVP 技术栈以 Python glue code 为主，优先降低本地开发、离线索�
 | 索引模式 | Offline Indexing | MVP 使用离线索引和手动重建，不做实时增量索引。 |
 | 初始化入口 | Index CLI | 真实项目入库通过离线批处理 CLI 完成；HTTP API 和 MCP server 不承担初始化入库职责。 |
 | LLM | OpenAI-compatible 外部服务 | LLM 不作为检索必须依赖，后续可用于摘要、解释或评测辅助。 |
-| Embedding | DashScope native EmbeddingProvider | embedding 与 LLM 分开选择；provider 通过 `base_url`、`api_key`、`model`、`dimension`、`batch_size` 配置。 |
+| Embedding | DashScope native / OpenAI-compatible EmbeddingProvider | embedding 与 LLM 分开选择；provider 通过 `provider`、`base_url`、`api_key`、`model`、`dimension`、`batch_size` 配置，Jina 可额外配置 document/query task mode。 |
 | 本地依赖 | 本机 PostgreSQL、pgvector extension | 本地开发默认使用本机安装，不把 Docker Compose 作为默认路径。 |
 
-Embedding 首版使用 DashScope native 多模态 embedding API。因为向量维度与 embedding 模型绑定，系统按 provider、model、dimension 独立保存 embedding；切换模型通常需要重新生成对应模型的索引向量。
+Embedding 首版使用 DashScope native 多模态 embedding API，阶段五补充 OpenAI-compatible provider 以支持 OpenAI/Jina 风格 `/v1/embeddings`。因为向量维度与 embedding 模型绑定，系统按 provider、model、dimension 独立保存 embedding；切换 provider、模型、维度或 Jina task pair 通常需要重新生成对应索引向量。
 
 ## 数据流
 
