@@ -138,7 +138,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 | `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
 | `ACP_EMBEDDING_PROVIDER` | 选择 embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
 | `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
-| `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认使用 `retrieval.passage` 写入 item embedding、`retrieval.query` 生成 query embedding |
+| `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认使用 `retrieval.passage` 写入 item embedding、`retrieval.query` 生成 query embedding，并在请求中启用 `truncate: true` 处理超长输入 |
 
 ## 快速开始
 
@@ -295,7 +295,7 @@ uv run alembic upgrade head
 
 ### 任务 12 embedding 写入验证
 
-`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用当前配置的 embedding provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库。当前已执行过 DashScope provider 真实调用；Jina/OpenAI-compatible provider 仍需要单独补真实外部调用验证：
+`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用当前配置的 embedding provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库。当前已执行过 DashScope provider 真实调用；Jina 仅完成过超长输入 smoke 验证，Jina/OpenAI-compatible provider 仍需要单独补完整写库验证：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
@@ -312,6 +312,8 @@ uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
 ### 任务 14 初始化索引 CLI 验证
 
 `acp-index` 会输出 JSON 摘要，包含 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`elapsed_seconds` 和 `failures`。
+
+如果 embedding provider 返回错误，`acp-index` 会把错误写入 `failures`，其中 `stage` 为 `embedding`，并回滚本次写入事务。
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"

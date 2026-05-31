@@ -121,14 +121,18 @@ top_code_result=code:src/main/java/example/Task12PaymentService.java:Task12Payme
 当前已通过单元测试覆盖：
 
 - OpenAI-compatible provider 向 `/embeddings` 发送 `model`、`input`、`encoding_format=float` 和 `dimensions`。
-- provider error 会映射为 `EmbeddingProviderError`，不会静默降级。
+- provider error 会映射为 `EmbeddingProviderError`，并支持解析 Jina `detail.code` / `detail.message`，不会静默降级。
 - Jina provider 默认 task pair 为 `retrieval.passage` / `retrieval.query`；检索侧生成 query embedding 时优先调用 query task。
+- Jina provider 会在请求中发送 `truncate: true`，避免真实 Java class item 超过模型 token 上限时整批失败。
 - Jina task pair 会进入 embedding identity，避免同一 provider/model/dimension 下覆盖不同 mode 的 item embedding。
+- `acp-index --with-embedding` 会把 provider 失败记录为 `stage=embedding` 的 JSON failure，并回滚本次写入事务。
 
 ```text
 python -m pytest -p no:cacheprovider tests/test_embeddings.py tests/test_retrieval.py tests/test_runtime.py
-22 passed
+23 passed
 ```
+
+另使用 Jina API key 对 144,000 字符的合成长文本执行过一次 smoke 验证，`truncate: true` 后可返回 1024 维 embedding；该验证不上传真实源码，也不代表真实项目端到端写入已经完成。
 
 ### 初始化索引 CLI 验证
 
@@ -136,21 +140,21 @@ python -m pytest -p no:cacheprovider tests/test_embeddings.py tests/test_retriev
 
 ```text
 python -m pytest -p no:cacheprovider tests/test_index_cli.py
-7 passed
+8 passed
 ```
 
 相关回归组：
 
 ```text
 python -m pytest -p no:cacheprovider tests/test_index_cli.py tests/test_indexers.py tests/test_embeddings.py tests/test_runtime.py
-28 passed
+30 passed
 ```
 
 全量回归：
 
 ```text
 python -m pytest -p no:cacheprovider
-63 passed
+65 passed
 ```
 
 CLI 输出摘要字段固定包含：
