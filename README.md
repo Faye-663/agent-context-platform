@@ -32,8 +32,6 @@
 尚不满足真实可用 MVP 的项：
 
 - 基于真实脱敏 Java 项目索引库的召回评测。
-- 真实 MySQL dump 风格 SQL 的索引兼容性。jshERP 的 `jsh_erp.sql` 已暴露当前 SQL indexer 对 MySQL `SET NAMES`、反引号标识符、`AUTO_INCREMENT`、`COMMENT` 等语法不兼容，需要在任务 15 前作为真实项目修复项处理。
-- Jina/OpenAI-compatible provider 的真实外部调用验证。当前已有单元测试覆盖请求体、响应解析、错误处理和 Jina `retrieval.passage` / `retrieval.query` task 分流；正式验收前还需要用真实 API key 做端到端写入与检索验证。
 
 阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入、数据库侧 pgvector 排序和通用初始化索引 CLI；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
 
@@ -219,7 +217,7 @@ MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP �
 
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
-当前任务 15 真实项目验证已暴露后续修复项：jshERP 的 MySQL dump SQL 文件无法被现有 PostgreSQL 方言 SQL indexer 完整解析。面向 MySQL 项目验收前，需要补齐 MySQL DDL 方言支持或 dump 预处理，并用代表性 MySQL DDL 样本增加回归测试。另一个后续项是 Jina/OpenAI-compatible provider 的真实外部验证：当前代码已实现 provider 选择和请求/响应解析，但切换 provider、model、dimension 或 Jina task pair 后仍必须重新生成对应 `item_embeddings`，不能混用不同向量空间。
+当前任务 15 真实项目验证不再把 MySQL dump 兼容作为前置待办；如果后续语料选择包含 jshERP 这类 MySQL dump SQL 文件，需要先重新确认验收范围或转换输入语料。Jina/OpenAI-compatible provider 已完成真实端到端写入与检索验证。切换 provider、model、dimension 或 Jina task pair 时，必须使用匹配的 `item_embeddings` 向量空间，不能混用不同向量空间。
 
 ## 本地验证
 
@@ -295,7 +293,7 @@ uv run alembic upgrade head
 
 ### 任务 12 embedding 写入验证
 
-`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用当前配置的 embedding provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库。当前已执行过 DashScope provider 真实调用；Jina 仅完成过超长输入 smoke 验证，Jina/OpenAI-compatible provider 仍需要单独补完整写库验证：
+`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用当前配置的 embedding provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库。当前已执行过 DashScope provider 真实调用，也已使用 Jina 作为 OpenAI-compatible provider 完成端到端写库与检索验证：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
@@ -305,6 +303,8 @@ uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
 
 当前已验证输出摘要：
 
+- DashScope：`provider=dashscope`、`model=tongyi-embedding-vision-flash-2026-03-06`、`dimension=768`
+- Jina / OpenAI-compatible：`provider=jina:retrieval.passage>retrieval.query`、`model=jina-embeddings-v3`、`dimension=1024`
 - `saved_count=3`
 - `embedding_counts=code:1,db_schema:1,doc:1`
 - query embedding 检索返回非零 vector score

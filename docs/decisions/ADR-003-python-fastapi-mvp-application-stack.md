@@ -12,7 +12,7 @@ Accepted
 
 MVP 已确定以 `build-task-context` 为首个验收工作流，并使用 PostgreSQL + pgvector、Hybrid Search、离线索引和 MCP Tool 接入。
 
-后续实现需要选择应用主语言、HTTP 框架、数据库访问方式、Java/SQL/Markdown parser、LLM 接入和 embedding provider 边界。选择过重会拖慢 MVP，选择过散会增加本地开发和测试成本。
+后续实现需要选择应用主语言、HTTP 框架、数据库访问方式、Java/SQL/Markdown parser 和 embedding provider 边界。LLM 不属于当前 MVP 的检索必需依赖，后续如引入摘要、解释或评测辅助，再单独确认接入方式。
 
 核心约束：
 
@@ -20,7 +20,7 @@ MVP 已确定以 `build-task-context` 为首个验收工作流，并使用 Postg
 - 索引器、评测脚本、HTTP API 和 MCP wrapper 需要共享模型与配置。
 - MCP wrapper 不能复制业务逻辑，只能调用 Context API。
 - Java 解析首版只需要结构化抽取，不做完整语义分析和调用链分析。
-- LLM 与 embedding 要分开选择，embedding 是 Hybrid Search 的核心依赖。
+- 当前 MVP 不依赖 LLM；LLM 与 embedding 必须分开选择，embedding 是 Hybrid Search 的核心依赖。
 
 ## Decision
 
@@ -35,7 +35,7 @@ MVP 应用栈使用 Python。
 - Java parser：tree-sitter-java。
 - SQL parser：sqlglot。
 - Markdown parser：markdown-it-py，并补充 line range glue code。
-- LLM：OpenAI-compatible 外部服务。
+- LLM：当前 MVP 不接入；后续如需要摘要、解释或评测辅助，再选择 OpenAI-compatible 外部服务。
 - Embedding：独立外部 EmbeddingProvider，不与 LLM 默认绑定。
 - 本地数据库：本机安装 PostgreSQL 和 pgvector extension，不以 Docker Compose 作为默认开发路径。
 
@@ -60,7 +60,7 @@ Pros:
 
 Cons:
 
-- 离线索引、评测脚本、LLM/embedding 接入和 MCP glue code 更重。
+- 离线索引、评测脚本、embedding 接入和 MCP glue code 更重。
 - MVP 当前重点不是构建企业 Java 服务框架。
 
 Rejected because MVP 需要更快验证上下文召回质量和 Agent 接入链路。

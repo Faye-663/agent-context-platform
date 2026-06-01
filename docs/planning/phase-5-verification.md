@@ -132,7 +132,35 @@ python -m pytest -p no:cacheprovider tests/test_embeddings.py tests/test_retriev
 23 passed
 ```
 
-另使用 Jina API key 对 144,000 字符的合成长文本执行过一次 smoke 验证，`truncate: true` 后可返回 1024 维 embedding；该验证不上传真实源码，也不代表真实项目端到端写入已经完成。
+另使用 Jina API key 对 144,000 字符的合成长文本执行过一次 smoke 验证，`truncate: true` 后可返回 1024 维 embedding；该验证不上传真实源码。
+
+### Jina / OpenAI-compatible 真实 embedding 验证
+
+使用主仓库 `.env` 中的 Jina key，并在当前进程加载完整 `ACP_EMBEDDING_*` 配置：
+
+```powershell
+$env:ACP_EMBEDDING_PROVIDER = "jina"
+$env:ACP_EMBEDDING_BASE_URL = "https://api.jina.ai/v1/embeddings"
+$env:ACP_EMBEDDING_MODEL = "jina-embeddings-v3"
+$env:ACP_EMBEDDING_DIMENSION = "1024"
+$env:ACP_EMBEDDING_BATCH_SIZE = "10"
+$env:ACP_EMBEDDING_DOCUMENT_TASK = "retrieval.passage"
+$env:ACP_EMBEDDING_QUERY_TASK = "retrieval.query"
+uv run --extra test python scripts/verify_task12_embeddings.py --env-file D:\Code\GitHub\agent-context-platform\.env
+```
+
+输出：
+
+```text
+task12 embedding verification passed
+provider=jina:retrieval.passage>retrieval.query
+model=jina-embeddings-v3
+dimension=1024
+batch_size=10
+saved_count=3
+embedding_counts=code:1,db_schema:1,doc:1
+top_code_result=code:src/main/java/example/Task12PaymentService.java:Task12PaymentService,vector=0.470067
+```
 
 ### 初始化索引 CLI 验证
 
@@ -249,7 +277,6 @@ $env:ACP_EMBEDDING_QUERY_TASK = "retrieval.query"
 ## 未覆盖边界
 
 - 真实脱敏 Java 项目索引库召回评测仍属于任务 15。
-- 真实项目 SQL 方言兼容性仍需修复。jshERP 的 `jsh_erp.sql` 是 MySQL dump 风格，包含 `SET NAMES utf8mb4`、`DROP TABLE IF EXISTS`、反引号标识符、`AUTO_INCREMENT`、列 `COMMENT` 和 `bigint(0)` 等语法；当前 SQL indexer 按 PostgreSQL DDL 解析，会在 `stage=index` 失败。后续需要支持 MySQL 方言或对 MySQL dump 做预处理，并补充代表性回归测试。
 - Alembic 和 `acp-index` 当前只读取进程环境变量，不会自动加载 `.env`。真实验证命令必须先在当前 PowerShell 进程加载 `.env` 或显式设置 `$env:ACP_DATABASE_URL`、`$env:ACP_EMBEDDING_*`；`uvicorn --env-file .env` 不能替代迁移和 CLI 的环境加载。
-- OpenAI-compatible / Jina provider 当前只做了单元级请求/响应验证，尚未使用真实 OpenAI 或 Jina API key 执行端到端写入与检索验证。
-- DashScope/OpenAI/Jina 以及不同 Jina task pair 的向量空间不兼容；切换 provider、model、dimension 或 task pair 后必须重新生成对应 `item_embeddings`。
+- MySQL dump 兼容当前不是任务 15 前置待办；如果真实评测语料选择包含 jshERP 这类 MySQL dump SQL 文件，需要先重新确认验收范围或转换输入语料。
+- DashScope/OpenAI/Jina 以及不同 Jina task pair 的向量空间不兼容；查询和写入必须使用匹配的 `item_embeddings` provider/model/dimension/task identity。
