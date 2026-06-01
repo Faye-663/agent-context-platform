@@ -7,7 +7,6 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from agent_context_platform.embeddings import (
-    DashScopeEmbeddingProvider,
     embed_and_save_items,
 )
 from agent_context_platform.indexers import (
@@ -17,7 +16,7 @@ from agent_context_platform.indexers import (
 )
 from agent_context_platform.models import AssetType
 from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
-from agent_context_platform.runtime import load_runtime_settings
+from agent_context_platform.runtime import build_embedding_provider, load_runtime_settings
 from agent_context_platform.storage import IndexedItemRepository, make_engine
 
 
@@ -29,15 +28,10 @@ def main() -> None:
     if settings.embedding is None:
         raise SystemExit("缺少 ACP_EMBEDDING_* 配置，无法验证任务 12。")
 
-    provider = DashScopeEmbeddingProvider(
-        base_url=settings.embedding.base_url,
-        api_key=settings.embedding.api_key,
-        model=settings.embedding.model,
-        dimension=settings.embedding.dimension,
-        batch_size=settings.embedding.batch_size,
-    )
+    provider = build_embedding_provider(settings.embedding)
     engine = make_engine(settings.database_url, echo=settings.sql_echo)
     items = _sample_items()
+    sample_item_ids = {item.id for item in items}
 
     with Session(engine) as session:
         repository = IndexedItemRepository(session)
@@ -65,6 +59,9 @@ def main() -> None:
             )
         )
 
+    code_results = _filter_rows_by_ids(code_results, sample_item_ids)
+    schema_results = _filter_rows_by_ids(schema_results, sample_item_ids)
+    doc_results = _filter_rows_by_ids(doc_results, sample_item_ids)
     _assert_embeddings("code", code_results, settings.embedding.dimension)
     _assert_embeddings("db_schema", schema_results, settings.embedding.dimension)
     _assert_embeddings("doc", doc_results, settings.embedding.dimension)
@@ -77,6 +74,7 @@ def main() -> None:
         raise AssertionError("query embedding search did not contribute vector score")
 
     print("task12 embedding verification passed")
+    print(f"provider={provider.identity.provider}")
     print(f"model={settings.embedding.model}")
     print(f"dimension={settings.embedding.dimension}")
     print(f"batch_size={settings.embedding.batch_size}")
@@ -93,7 +91,7 @@ def main() -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify task 12 DashScope embedding generation and storage."
+        description="Verify task 12 embedding generation and storage."
     )
     parser.add_argument(
         "--env-file",
@@ -135,6 +133,14 @@ def _sample_items():
         "# Task12 Payment Integration\n\nBuild payment messages for order events.",
     )
     return [java_items[0], sql_items[0], doc_items[0]]
+
+
+def _filter_rows_by_ids(
+    rows: list[tuple[object, list[float] | None]],
+    item_ids: set[str],
+) -> list[tuple[object, list[float] | None]]:
+    # 真实验证库可能已有其他索引项；脚本只断言本次样本写入链路。
+    return [(item, embedding) for item, embedding in rows if item.id in item_ids]
 
 
 def _assert_embeddings(
