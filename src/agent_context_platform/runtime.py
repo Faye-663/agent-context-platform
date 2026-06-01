@@ -11,7 +11,11 @@ from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import sessionmaker
 
 from agent_context_platform.api import create_app
-from agent_context_platform.embeddings import DashScopeEmbeddingProvider
+from agent_context_platform.embeddings import (
+    DashScopeEmbeddingProvider,
+    EmbeddingProvider,
+    OpenAICompatibleEmbeddingProvider,
+)
 from agent_context_platform.retrieval import HybridSearchService
 from agent_context_platform.storage import IndexedItemRepository, make_engine
 
@@ -31,6 +35,8 @@ class EmbeddingProviderSettings(BaseModel):
     这里的 dimension 会一路传到 EmbeddingIdentity，用来保护向量比较边界。
     """
 
+    # provider 选择请求协议；默认保持历史 DashScope native 行为。
+    provider: str = Field(default="dashscope", min_length=1)
     # base_url 是 provider API 根地址，不包含具体 embedding path。
     base_url: str = Field(min_length=1)
     # api_key 只从环境变量读取，不写入文档或日志。
@@ -41,6 +47,9 @@ class EmbeddingProviderSettings(BaseModel):
     dimension: int = Field(gt=0)
     # batch_size 控制一次外部请求包含多少 IndexedItem 文本。
     batch_size: int = Field(gt=0)
+    # Jina/OpenAI-compatible provider 可用 document/query task 区分索引与查询 mode。
+    document_task: str | None = None
+    query_task: str | None = None
 
 
 class RuntimeSettings(BaseModel):
@@ -96,13 +105,7 @@ def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
     embedding_provider = None
     if resolved_settings.embedding is not None:
         # embedding provider 是可选依赖；没有配置时 API 仍可走 keyword-only 检索。
-        embedding_provider = DashScopeEmbeddingProvider(
-            base_url=resolved_settings.embedding.base_url,
-            api_key=resolved_settings.embedding.api_key,
-            model=resolved_settings.embedding.model,
-            dimension=resolved_settings.embedding.dimension,
-            batch_size=resolved_settings.embedding.batch_size,
-        )
+        embedding_provider = build_embedding_provider(resolved_settings.embedding)
 
     @contextmanager
     def search_service_scope() -> Iterator[HybridSearchService]:
@@ -124,17 +127,25 @@ def _load_embedding_settings(
     environ: Mapping[str, str],
 ) -> EmbeddingProviderSettings | None:
     env_names = {
+        "provider": "ACP_EMBEDDING_PROVIDER",
         "base_url": "ACP_EMBEDDING_BASE_URL",
         "api_key": "ACP_EMBEDDING_API_KEY",
         "model": "ACP_EMBEDDING_MODEL",
         "dimension": "ACP_EMBEDDING_DIMENSION",
         "batch_size": "ACP_EMBEDDING_BATCH_SIZE",
+        "document_task": "ACP_EMBEDDING_DOCUMENT_TASK",
+        "query_task": "ACP_EMBEDDING_QUERY_TASK",
     }
     raw_values = {field: environ.get(name) for field, name in env_names.items()}
     if not any(raw_values.values()):
         return None
 
-    missing = [name for field, name in env_names.items() if not raw_values[field]]
+    optional_fields = {"provider", "document_task", "query_task"}
+    missing = [
+        name
+        for field, name in env_names.items()
+        if field not in optional_fields and not raw_values[field]
+    ]
     if missing:
         raise RuntimeConfigError(
             "embedding provider 配置不完整，缺少：" + ", ".join(missing)
@@ -142,6 +153,7 @@ def _load_embedding_settings(
 
     try:
         return EmbeddingProviderSettings(
+            provider=str(raw_values["provider"] or "dashscope"),
             base_url=str(raw_values["base_url"]),
             api_key=str(raw_values["api_key"]),
             model=str(raw_values["model"]),
@@ -151,6 +163,8 @@ def _load_embedding_settings(
             batch_size=_parse_positive_int(
                 str(raw_values["batch_size"]), "ACP_EMBEDDING_BATCH_SIZE"
             ),
+            document_task=_optional_env_value(raw_values["document_task"]),
+            query_task=_optional_env_value(raw_values["query_task"]),
         )
     except ValidationError as exc:
         raise RuntimeConfigError(f"embedding provider 配置格式错误：{exc}") from exc
@@ -190,6 +204,44 @@ def _parse_positive_int(value: str, name: str) -> int:
     if parsed <= 0:
         raise RuntimeConfigError(f"{name} 必须是正整数。")
     return parsed
+
+
+def _optional_env_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def build_embedding_provider(settings: EmbeddingProviderSettings) -> EmbeddingProvider:
+    provider = settings.provider.strip().lower()
+    if provider == "dashscope":
+        return DashScopeEmbeddingProvider(
+            base_url=settings.base_url,
+            api_key=settings.api_key,
+            model=settings.model,
+            dimension=settings.dimension,
+            batch_size=settings.batch_size,
+        )
+    if provider in {"openai", "jina"}:
+        document_task = settings.document_task
+        query_task = settings.query_task
+        if provider == "jina":
+            document_task = document_task or "retrieval.passage"
+            query_task = query_task or "retrieval.query"
+        return OpenAICompatibleEmbeddingProvider(
+            provider=provider,
+            base_url=settings.base_url,
+            api_key=settings.api_key,
+            model=settings.model,
+            dimension=settings.dimension,
+            batch_size=settings.batch_size,
+            document_task=document_task,
+            query_task=query_task,
+        )
+    raise RuntimeConfigError(
+        "ACP_EMBEDDING_PROVIDER 必须是 dashscope、openai 或 jina。"
+    )
 
 
 def _configure_logging(log_level: str) -> None:

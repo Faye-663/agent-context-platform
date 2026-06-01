@@ -230,9 +230,72 @@ def test_hybrid_search_merges_bounded_keyword_and_vector_candidates() -> None:
     assert results[1].score_parts["vector"] == 1.0
 
 
+def test_hybrid_search_generates_query_embedding_with_query_mode() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    identity = EmbeddingIdentity(
+        provider="jina:retrieval.passage>retrieval.query",
+        model="jina-embeddings-v4",
+        dimension=3,
+    )
+    provider = QueryModeEmbeddingProvider(identity)
+
+    repository.save(
+        make_item(
+            "code:VectorOnlyService.print",
+            AssetType.CODE,
+            "VectorOnlyService.print",
+            "invoice document",
+            SourceCitation(
+                source_type=SourceType.CODE,
+                path="src/main/java/example/VectorOnlyService.java",
+                start_line=1,
+                end_line=12,
+                symbol="VectorOnlyService.print",
+            ),
+            {"language": "java", "symbol_type": "method"},
+        ),
+        embedding=[0.0, 1.0, 0.0],
+        embedding_identity=identity,
+    )
+    session.commit()
+
+    service = HybridSearchService(repository, provider)
+    results = service.search(
+        HybridSearchQuery(
+            query="semantic invoice",
+            asset_type=AssetType.CODE,
+            limit=10,
+        )
+    )
+
+    assert [result.item.id for result in results] == ["code:VectorOnlyService.print"]
+    assert provider.query_requests == ["semantic invoice"]
+    assert provider.document_requests == []
+
+
 class QueryEmbeddingProvider:
     def __init__(self, identity: EmbeddingIdentity):
         self.identity = identity
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         return [[0.0, 1.0, 0.0] for _text in texts]
+
+
+class QueryModeEmbeddingProvider:
+    batch_size = 2
+
+    def __init__(self, identity: EmbeddingIdentity):
+        self.identity = identity
+        self.document_requests: list[list[str]] = []
+        self.query_requests: list[str] = []
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        self.document_requests.append(list(texts))
+        return [[1.0, 0.0, 0.0] for _text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        self.query_requests.append(text)
+        return [0.0, 1.0, 0.0]

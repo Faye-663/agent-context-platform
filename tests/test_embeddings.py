@@ -13,6 +13,7 @@ from agent_context_platform.embeddings import (
     EmbeddingDimensionError,
     EmbeddingIdentity,
     EmbeddingProviderError,
+    OpenAICompatibleEmbeddingProvider,
     embed_and_save_items,
 )
 from agent_context_platform.indexers import (
@@ -105,6 +106,145 @@ def test_dashscope_provider_rejects_wrong_dimension() -> None:
     )
 
     with pytest.raises(EmbeddingDimensionError, match="test-embedding-model"):
+        provider.embed_texts(["alpha"])
+
+
+def test_openai_compatible_provider_posts_embeddings_request_and_parses_vectors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.openai.example/v1/embeddings"
+        assert request.headers["authorization"] == "Bearer test-key"
+        payload = json.loads(request.content)
+        assert payload == {
+            "model": "embedding-model",
+            "input": ["alpha", "beta"],
+            "encoding_format": "float",
+            "dimensions": 3,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": 0, "embedding": [1.0, 0.0, 0.0]},
+                    {"object": "embedding", "index": 1, "embedding": [0.0, 1.0, 0.0]},
+                ],
+                "model": "embedding-model",
+            },
+        )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        provider="openai",
+        base_url="https://api.openai.example/v1",
+        api_key="test-key",
+        model="embedding-model",
+        dimension=3,
+        batch_size=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert provider.identity == EmbeddingIdentity(
+        provider="openai", model="embedding-model", dimension=3
+    )
+    assert provider.embed_texts(["alpha", "beta"]) == [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ]
+
+
+def test_jina_provider_uses_document_and_query_tasks() -> None:
+    seen_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        seen_payloads.append(payload)
+        embedding = (
+            [1.0, 0.0, 0.0]
+            if payload["task"] == "retrieval.passage"
+            else [0.0, 1.0, 0.0]
+        )
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": 0, "embedding": embedding},
+                ],
+            },
+        )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        provider="jina",
+        base_url="https://api.jina.ai/v1",
+        api_key="test-key",
+        model="jina-embeddings-v4",
+        dimension=3,
+        batch_size=10,
+        document_task="retrieval.passage",
+        query_task="retrieval.query",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert provider.identity == EmbeddingIdentity(
+        provider="jina:retrieval.passage>retrieval.query",
+        model="jina-embeddings-v4",
+        dimension=3,
+    )
+    assert provider.embed_texts(["document"]) == [[1.0, 0.0, 0.0]]
+    assert provider.embed_query("query") == [0.0, 1.0, 0.0]
+    assert [payload["task"] for payload in seen_payloads] == [
+        "retrieval.passage",
+        "retrieval.query",
+    ]
+    assert [payload["truncate"] for payload in seen_payloads] == [True, True]
+
+
+def test_openai_compatible_provider_reports_provider_failure() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"code": "invalid_request", "message": "bad input"}},
+        )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        provider="openai",
+        base_url="https://api.openai.example/v1",
+        api_key="test-key",
+        model="embedding-model",
+        dimension=3,
+        batch_size=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(EmbeddingProviderError, match="400.*invalid_request"):
+        provider.embed_texts(["alpha"])
+
+
+def test_jina_provider_reports_detail_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "detail": {
+                    "code": "INPUT_TOKEN_LIMIT_EXCEEDED",
+                    "message": "Input text exceeds the model limit.",
+                }
+            },
+        )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        provider="jina",
+        base_url="https://api.jina.ai/v1",
+        api_key="test-key",
+        model="jina-embeddings-v3",
+        dimension=3,
+        batch_size=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(
+        EmbeddingProviderError,
+        match="INPUT_TOKEN_LIMIT_EXCEEDED.*Input text exceeds",
+    ):
         provider.embed_texts(["alpha"])
 
 

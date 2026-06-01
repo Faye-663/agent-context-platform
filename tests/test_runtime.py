@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
 from agent_context_platform.runtime import (
+    EmbeddingProviderSettings,
     RuntimeConfigError,
     RuntimeSettings,
+    build_embedding_provider,
     create_runtime_app,
     load_runtime_settings,
 )
@@ -42,6 +44,45 @@ def test_load_runtime_settings_reads_runtime_and_embedding_values() -> None:
     assert settings.embedding is not None
     assert settings.embedding.dimension == 1024
     assert settings.embedding.batch_size == 32
+
+
+def test_load_runtime_settings_reads_openai_compatible_provider_values() -> None:
+    settings = load_runtime_settings(
+        {
+            "ACP_DATABASE_URL": "sqlite:///runtime.db",
+            "ACP_EMBEDDING_PROVIDER": "jina",
+            "ACP_EMBEDDING_BASE_URL": "https://api.jina.ai/v1",
+            "ACP_EMBEDDING_API_KEY": "test-key",
+            "ACP_EMBEDDING_MODEL": "jina-embeddings-v4",
+            "ACP_EMBEDDING_DIMENSION": "2048",
+            "ACP_EMBEDDING_BATCH_SIZE": "16",
+            "ACP_EMBEDDING_DOCUMENT_TASK": "code.passage",
+            "ACP_EMBEDDING_QUERY_TASK": "code.query",
+        }
+    )
+
+    assert settings.embedding is not None
+    assert settings.embedding.provider == "jina"
+    assert settings.embedding.document_task == "code.passage"
+    assert settings.embedding.query_task == "code.query"
+
+
+def test_build_embedding_provider_creates_jina_openai_compatible_provider() -> None:
+    provider = build_embedding_provider(
+        EmbeddingProviderSettings(
+            provider="jina",
+            base_url="https://api.jina.ai/v1",
+            api_key="test-key",
+            model="jina-embeddings-v4",
+            dimension=2048,
+            batch_size=16,
+            document_task="retrieval.passage",
+            query_task="retrieval.query",
+        )
+    )
+
+    assert provider.identity.provider == "jina:retrieval.passage>retrieval.query"
+    assert provider.identity.model == "jina-embeddings-v4"
 
 
 def test_load_runtime_settings_rejects_partial_embedding_configuration() -> None:

@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope embedding provider、批量 embedding 写入能力、数据库侧 pgvector 相似度排序与真实项目初始化索引 CLI。
+项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope 与 OpenAI-compatible embedding provider、批量 embedding 写入能力、数据库侧 pgvector 相似度排序与真实项目初始化索引 CLI。
 
 已实现范围：
 
@@ -23,7 +23,7 @@
 - MCP 包装层：基于 MCP Python SDK `FastMCP` 暴露 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context` 对应工具，包装层只调用 Context API。
 - 固定评测集与回归脚本：包含 10 个脱敏半真实工程任务样本，可计算 Top5 命中率、Top10 明显无关结果数量和来源引用完整率。
 - 固定 ASGI 入口与运行配置加载：提供 `agent_context_platform.asgi:app`、`ACP_DATABASE_URL` 运行配置和 embedding provider 配置校验。
-- DashScope native EmbeddingProvider：通过 `ACP_EMBEDDING_*` 配置生成 query embedding 和 item embedding。
+- EmbeddingProvider：通过 `ACP_EMBEDDING_*` 配置生成 query embedding 和 item embedding，当前支持 DashScope native、OpenAI-compatible 和 Jina task mode。
 - 多模型 embedding 存储：`item_embeddings` 按 `provider`、`model`、`dimension` 保存 embedding，避免把当前模型维度固定进 `indexed_items` 主表。
 - 批量 embedding 写入：支持把 Java、SQL、Markdown 三类离线索引结果生成 embedding 后落库。
 - 数据库侧 pgvector 相似度排序：provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 的 `<=>` 完成 query embedding 相似度排序，并保留关键词候选的有界合并。
@@ -33,7 +33,7 @@
 
 - 基于真实脱敏 Java 项目索引库的召回评测。
 - 真实 MySQL dump 风格 SQL 的索引兼容性。jshERP 的 `jsh_erp.sql` 已暴露当前 SQL indexer 对 MySQL `SET NAMES`、反引号标识符、`AUTO_INCREMENT`、`COMMENT` 等语法不兼容，需要在任务 15 前作为真实项目修复项处理。
-- 多 embedding provider 适配。当前运行时只实例化 DashScope native provider；后续如需接入 OpenAI 或 Jina，应新增 OpenAI-compatible provider 选择层，并明确切换 provider/model/dimension 后必须重新生成对应 `item_embeddings`，不能混用不同向量空间。
+- Jina/OpenAI-compatible provider 的真实外部调用验证。当前已有单元测试覆盖请求体、响应解析、错误处理和 Jina `retrieval.passage` / `retrieval.query` task 分流；正式验收前还需要用真实 API key 做端到端写入与检索验证。
 
 阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入、数据库侧 pgvector 排序和通用初始化索引 CLI；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
 
@@ -136,7 +136,9 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 | `ACP_LOG_LEVEL` | 指定应用日志级别 | 默认 `INFO` |
 | `ACP_SQL_ECHO` | 控制 SQLAlchemy 是否输出 SQL 日志 | 默认 `false` |
 | `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
-| `ACP_EMBEDDING_*` | DashScope native embedding provider 配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
+| `ACP_EMBEDDING_PROVIDER` | 选择 embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
+| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
+| `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认使用 `retrieval.passage` 写入 item embedding、`retrieval.query` 生成 query embedding，并在请求中启用 `truncate: true` 处理超长输入 |
 
 ## 快速开始
 
@@ -148,7 +150,7 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    Copy-Item .env.example .env
    ```
 
-2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要验证任务 12 的 DashScope embedding 时，还必须补齐 `ACP_EMBEDDING_API_KEY`。
+2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，还必须确认 `ACP_EMBEDDING_PROVIDER`、`ACP_EMBEDDING_API_KEY`、`ACP_EMBEDDING_MODEL` 和维度配置匹配当前 provider。
 
 3. 在当前 PowerShell 进程中设置本仓库本地依赖缓存：
 
@@ -217,7 +219,7 @@ MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP �
 
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
-当前任务 15 真实项目验证已暴露后续修复项：jshERP 的 MySQL dump SQL 文件无法被现有 PostgreSQL 方言 SQL indexer 完整解析。面向 MySQL 项目验收前，需要补齐 MySQL DDL 方言支持或 dump 预处理，并用代表性 MySQL DDL 样本增加回归测试。另一个后续项是 embedding provider 扩展：当前实现只适配 DashScope native API；如果要使用 OpenAI 或 Jina，需要实现 OpenAI-compatible 请求/响应解析，并按 provider/model/dimension 重建 embedding 数据。
+当前任务 15 真实项目验证已暴露后续修复项：jshERP 的 MySQL dump SQL 文件无法被现有 PostgreSQL 方言 SQL indexer 完整解析。面向 MySQL 项目验收前，需要补齐 MySQL DDL 方言支持或 dump 预处理，并用代表性 MySQL DDL 样本增加回归测试。另一个后续项是 Jina/OpenAI-compatible provider 的真实外部验证：当前代码已实现 provider 选择和请求/响应解析，但切换 provider、model、dimension 或 Jina task pair 后仍必须重新生成对应 `item_embeddings`，不能混用不同向量空间。
 
 ## 本地验证
 
@@ -231,7 +233,7 @@ uv run --extra test pytest
 
 当前任务 14 后验证结果：
 
-- `uv run --extra test pytest`：`57 passed`
+- `uv run --extra test pytest`：`63 passed`
 
 ### 固定评测集回归
 
@@ -293,7 +295,7 @@ uv run alembic upgrade head
 
 ### 任务 12 embedding 写入验证
 
-`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用 DashScope provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库：
+`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用当前配置的 embedding provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库。当前已执行过 DashScope provider 真实调用；Jina 仅完成过超长输入 smoke 验证，Jina/OpenAI-compatible provider 仍需要单独补完整写库验证：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
@@ -310,6 +312,8 @@ uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
 ### 任务 14 初始化索引 CLI 验证
 
 `acp-index` 会输出 JSON 摘要，包含 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`elapsed_seconds` 和 `failures`。
+
+如果 embedding provider 返回错误，`acp-index` 会把错误写入 `failures`，其中 `stage` 为 `embedding`，并回滚本次写入事务。
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"

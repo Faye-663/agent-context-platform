@@ -5,6 +5,8 @@
 阶段五用于补齐真实项目可用前的收口项。任务 12 当前覆盖：
 
 - DashScope native `EmbeddingProvider` 调用。
+- OpenAI-compatible `EmbeddingProvider` 调用，覆盖 OpenAI/Jina 风格 `/v1/embeddings` 请求和响应。
+- Jina task mode：索引 item embedding 默认使用 `retrieval.passage`，查询 embedding 默认使用 `retrieval.query`，可通过 `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` 覆盖。
 - Java、SQL、Markdown 三类离线索引结果的批量 embedding 写入。
 - `item_embeddings` 按 provider、model、dimension 存储多模型 embedding。
 - 应用层写入维度校验与 PostgreSQL 动态维度约束。
@@ -26,6 +28,7 @@
 - include / exclude 支持重复传入，默认排除 `.git`、`target`、`build`、`dist`、`node_modules`、`.venv`、`__pycache__`。
 - repo 标识可显式传入；未传入时使用根目录名，并在 JSON 摘要中输出最终 repo。
 - embedding 写入必须显式传入 `--with-embedding`，并要求完整 `ACP_EMBEDDING_*` 配置，不会因为环境变量存在而自动调用外部 provider。
+- `ACP_EMBEDDING_PROVIDER` 可选择 `dashscope`、`openai` 或 `jina`；不填写时保持历史默认 `dashscope`。
 
 ## 已执行验证
 
@@ -33,7 +36,7 @@
 
 ```text
 uv run --extra test pytest
-57 passed
+63 passed
 ```
 
 ```text
@@ -113,27 +116,45 @@ embedding_counts=code:1,db_schema:1,doc:1
 top_code_result=code:src/main/java/example/Task12PaymentService.java:Task12PaymentService,vector=0.8746939897537231
 ```
 
+### OpenAI-compatible / Jina provider 单元验证
+
+当前已通过单元测试覆盖：
+
+- OpenAI-compatible provider 向 `/embeddings` 发送 `model`、`input`、`encoding_format=float` 和 `dimensions`。
+- provider error 会映射为 `EmbeddingProviderError`，并支持解析 Jina `detail.code` / `detail.message`，不会静默降级。
+- Jina provider 默认 task pair 为 `retrieval.passage` / `retrieval.query`；检索侧生成 query embedding 时优先调用 query task。
+- Jina provider 会在请求中发送 `truncate: true`，避免真实 Java class item 超过模型 token 上限时整批失败。
+- Jina task pair 会进入 embedding identity，避免同一 provider/model/dimension 下覆盖不同 mode 的 item embedding。
+- `acp-index --with-embedding` 会把 provider 失败记录为 `stage=embedding` 的 JSON failure，并回滚本次写入事务。
+
+```text
+python -m pytest -p no:cacheprovider tests/test_embeddings.py tests/test_retrieval.py tests/test_runtime.py
+23 passed
+```
+
+另使用 Jina API key 对 144,000 字符的合成长文本执行过一次 smoke 验证，`truncate: true` 后可返回 1024 维 embedding；该验证不上传真实源码，也不代表真实项目端到端写入已经完成。
+
 ### 初始化索引 CLI 验证
 
 任务 14 的自动化验证覆盖临时样本目录、SQLite repository 写入、dry-run、include/exclude、显式 repo 标识、显式 embedding 开关和失败摘要：
 
 ```text
 python -m pytest -p no:cacheprovider tests/test_index_cli.py
-7 passed
+8 passed
 ```
 
 相关回归组：
 
 ```text
 python -m pytest -p no:cacheprovider tests/test_index_cli.py tests/test_indexers.py tests/test_embeddings.py tests/test_runtime.py
-23 passed
+30 passed
 ```
 
 全量回归：
 
 ```text
 python -m pytest -p no:cacheprovider
-57 passed
+65 passed
 ```
 
 CLI 输出摘要字段固定包含：
@@ -206,6 +227,19 @@ uv run acp-index --root D:\Code\YourProject --repo your-project
 uv run acp-index --root D:\Code\YourProject --repo your-project --with-embedding
 ```
 
+Jina 示例配置：
+
+```powershell
+$env:ACP_EMBEDDING_PROVIDER = "jina"
+$env:ACP_EMBEDDING_BASE_URL = "https://api.jina.ai/v1"
+$env:ACP_EMBEDDING_API_KEY = "<your-jina-api-key>"
+$env:ACP_EMBEDDING_MODEL = "jina-embeddings-v4"
+$env:ACP_EMBEDDING_DIMENSION = "2048"
+$env:ACP_EMBEDDING_BATCH_SIZE = "10"
+$env:ACP_EMBEDDING_DOCUMENT_TASK = "retrieval.passage"
+$env:ACP_EMBEDDING_QUERY_TASK = "retrieval.query"
+```
+
 验证完成后停止本地数据库：
 
 ```powershell
@@ -217,4 +251,5 @@ uv run acp-index --root D:\Code\YourProject --repo your-project --with-embedding
 - 真实脱敏 Java 项目索引库召回评测仍属于任务 15。
 - 真实项目 SQL 方言兼容性仍需修复。jshERP 的 `jsh_erp.sql` 是 MySQL dump 风格，包含 `SET NAMES utf8mb4`、`DROP TABLE IF EXISTS`、反引号标识符、`AUTO_INCREMENT`、列 `COMMENT` 和 `bigint(0)` 等语法；当前 SQL indexer 按 PostgreSQL DDL 解析，会在 `stage=index` 失败。后续需要支持 MySQL 方言或对 MySQL dump 做预处理，并补充代表性回归测试。
 - Alembic 和 `acp-index` 当前只读取进程环境变量，不会自动加载 `.env`。真实验证命令必须先在当前 PowerShell 进程加载 `.env` 或显式设置 `$env:ACP_DATABASE_URL`、`$env:ACP_EMBEDDING_*`；`uvicorn --env-file .env` 不能替代迁移和 CLI 的环境加载。
-- 当前 embedding provider 实现只覆盖 DashScope native API。后续如果要支持 OpenAI 或 Jina，应新增 provider 选择配置和 OpenAI-compatible provider 实现；虽然 OpenAI/Jina 的 `/v1/embeddings` API 形状接近，但它们与 DashScope/OpenAI/Jina 各自的向量空间不兼容，切换 provider/model/dimension 后必须重新生成对应 `item_embeddings`。
+- OpenAI-compatible / Jina provider 当前只做了单元级请求/响应验证，尚未使用真实 OpenAI 或 Jina API key 执行端到端写入与检索验证。
+- DashScope/OpenAI/Jina 以及不同 Jina task pair 的向量空间不兼容；切换 provider、model、dimension 或 task pair 后必须重新生成对应 `item_embeddings`。

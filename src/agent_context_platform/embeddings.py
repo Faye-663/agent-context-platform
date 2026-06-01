@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _DASHSCOPE_MULTIMODAL_PATH = (
     "/services/embeddings/multimodal-embedding/multimodal-embedding"
 )
+_OPENAI_EMBEDDINGS_PATH = "/embeddings"
 
 
 class EmbeddingProviderError(RuntimeError):
@@ -147,6 +148,133 @@ class DashScopeEmbeddingProvider:
             _validate_embedding_dimension(embedding, self.identity)
         return embeddings
 
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_texts([text])[0]
+
+
+class OpenAICompatibleEmbeddingProvider:
+    def __init__(
+        self,
+        *,
+        provider: str,
+        base_url: str,
+        api_key: str,
+        model: str,
+        dimension: int,
+        batch_size: int,
+        document_task: str | None = None,
+        query_task: str | None = None,
+        client: httpx.Client | None = None,
+        timeout: float = 60.0,
+    ) -> None:
+        provider_name = provider.strip().lower()
+        if not provider_name:
+            raise ValueError("OpenAI-compatible provider must not be empty")
+        if not base_url.strip():
+            raise ValueError("OpenAI-compatible base_url must not be empty")
+        if not api_key.strip():
+            raise ValueError("OpenAI-compatible api_key must not be empty")
+        if batch_size <= 0:
+            raise ValueError("OpenAI-compatible batch_size must be positive")
+
+        self.provider = provider_name
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+        self.batch_size = batch_size
+        self.timeout = timeout
+        self.document_task = _normalize_optional_task(document_task)
+        self.query_task = _normalize_optional_task(query_task)
+        self.identity = EmbeddingIdentity(
+            provider=_provider_identity(
+                provider_name,
+                self.document_task,
+                self.query_task,
+            ),
+            model=model,
+            dimension=dimension,
+        )
+        self._client = client or httpx.Client()
+
+    @property
+    def endpoint(self) -> str:
+        if self.base_url.endswith(_OPENAI_EMBEDDINGS_PATH):
+            return self.base_url
+        return f"{self.base_url}{_OPENAI_EMBEDDINGS_PATH}"
+
+    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._embed_texts(texts, task=self.document_task)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed_texts([text], task=self.query_task)[0]
+
+    def _embed_texts(
+        self,
+        texts: Sequence[str],
+        *,
+        task: str | None,
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "input": list(texts),
+            "encoding_format": "float",
+            "dimensions": self.identity.dimension,
+        }
+        if task is not None:
+            # Jina 的 task/mode 用于区分待检索文档和查询文本；OpenAI 原生不设置该字段。
+            payload["task"] = task
+        if self.provider == "jina":
+            # Jina 对单条输入有 token 上限；真实 Java class item 可能很长，先让 provider 截断而不是整批失败。
+            payload["truncate"] = True
+        try:
+            response = self._client.post(
+                self.endpoint,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError as exc:
+            logger.exception(
+                "embedding_provider_error provider=%s endpoint_path=%s model=%s",
+                self.provider,
+                _OPENAI_EMBEDDINGS_PATH,
+                self.model,
+            )
+            raise EmbeddingProviderError(
+                f"{self.provider} embedding request failed: {exc}"
+            ) from exc
+
+        if response.status_code >= 400:
+            code, message = _provider_error(response)
+            logger.error(
+                "embedding_provider_error provider=%s endpoint_path=%s "
+                "model=%s status_code=%s error_code=%s",
+                self.provider,
+                _OPENAI_EMBEDDINGS_PATH,
+                self.model,
+                response.status_code,
+                code,
+            )
+            raise EmbeddingProviderError(
+                f"{self.provider} embedding request failed with "
+                f"{response.status_code}: {code} {message}".strip()
+            )
+
+        embeddings = _parse_openai_compatible_embeddings(response)
+        if len(embeddings) != len(texts):
+            raise EmbeddingProviderError(
+                f"{self.provider} embedding response count does not match input count"
+            )
+        for embedding in embeddings:
+            _validate_embedding_dimension(embedding, self.identity)
+        return embeddings
+
 
 def embed_and_save_items(
     repository: Any,
@@ -209,6 +337,48 @@ def _parse_dashscope_embeddings(response: httpx.Response) -> list[list[float]]:
     return embeddings
 
 
+def _parse_openai_compatible_embeddings(response: httpx.Response) -> list[list[float]]:
+    try:
+        raw = response.json()
+        raw_embeddings = raw["data"]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EmbeddingProviderError(
+            "OpenAI-compatible embedding response shape is invalid"
+        ) from exc
+
+    embeddings_by_index: dict[int, list[float]] = {}
+    for raw_embedding in raw_embeddings:
+        try:
+            index = int(raw_embedding["index"])
+            embedding = raw_embedding["embedding"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EmbeddingProviderError(
+                "OpenAI-compatible embedding response item is invalid"
+            ) from exc
+        embeddings_by_index[index] = [float(value) for value in embedding]
+    return [embeddings_by_index[index] for index in sorted(embeddings_by_index)]
+
+
+def _normalize_optional_task(task: str | None) -> str | None:
+    if task is None:
+        return None
+    normalized = task.strip()
+    return normalized or None
+
+
+def _provider_identity(
+    provider: str,
+    document_task: str | None,
+    query_task: str | None,
+) -> str:
+    if document_task is None and query_task is None:
+        return provider
+    identity = f"{provider}:{document_task or 'default'}>{query_task or 'default'}"
+    if len(identity) > 64:
+        raise ValueError("embedding provider identity must not exceed 64 characters")
+    return identity
+
+
 def _provider_error(response: httpx.Response) -> tuple[str, str]:
     try:
         payload = response.json()
@@ -216,14 +386,28 @@ def _provider_error(response: httpx.Response) -> tuple[str, str]:
         return "unknown", response.text
 
     if isinstance(payload, dict):
+        error = payload.get("error")
+        detail = payload.get("detail")
         code = str(
-            payload.get("code") or payload.get("error", {}).get("code") or "unknown"
+            payload.get("code")
+            or _mapping_value(error, "code")
+            or _mapping_value(detail, "code")
+            or "unknown"
         )
         message = str(
-            payload.get("message") or payload.get("error", {}).get("message") or ""
+            payload.get("message")
+            or _mapping_value(error, "message")
+            or _mapping_value(detail, "message")
+            or (detail if isinstance(detail, str) else "")
         )
         return code, message
     return "unknown", str(payload)
+
+
+def _mapping_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return None
 
 
 def _validate_embedding_dimension(
