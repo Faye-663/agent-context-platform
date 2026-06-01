@@ -16,7 +16,7 @@
 - MVP 使用离线索引，不做实时增量。
 - MVP 使用 PostgreSQL + pgvector，不引入 Milvus、Neo4j、OpenSearch。
 - PostgreSQL 和 pgvector 本地开发默认使用本机安装。
-- LLM 使用 OpenAI-compatible 外部服务；embedding 独立选择外部 EmbeddingProvider。
+- 当前 MVP 不依赖 LLM；embedding 独立选择外部 EmbeddingProvider。后续如引入摘要、解释或评测辅助，再单独确认 OpenAI-compatible LLM 配置。
 - 召回质量必须通过固定评测集验证。
 
 ## 阶段 1：基础能力
@@ -394,4 +394,3 @@
 ## 待确认问题
 
 - 真实评测语料使用哪个脱敏 Java 项目。
-- OpenAI-compatible 外部 LLM 的 provider、模型名和配置方式。
