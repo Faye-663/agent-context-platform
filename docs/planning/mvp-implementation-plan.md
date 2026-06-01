@@ -280,7 +280,7 @@
 
 - [x] 支持通过配置指定 embedding provider 的 `base_url`、`api_key`、`model`、`dimension` 和 `batch_size`。
 - [x] 批量写入流程能为 Java、SQL、Markdown 三类索引项生成并保存 embedding。
-- [x] embedding 维度与当前 provider/model/dimension 不匹配时明确失败，提示需要重建索引或调整配置。
+- [x] embedding 维度与当前 provider/model/dimension 不匹配时明确失败，避免不同向量空间混用。
 - [x] provider 调用失败时输出必要日志，便于定位请求失败、限流或模型配置错误。
 
 **验证方式：**
@@ -385,15 +385,13 @@
 | 风险 | 影响 | 应对 |
 |---|---|---|
 | 解析器选型与真实项目语法不兼容 | 高 | 使用测试样本覆盖常见 Java/SQL/Markdown 结构，遇到真实样本再扩展 |
-| 真实项目 SQL dump 使用 MySQL 方言 | 高 | `acp-index` 在 jshERP `jsh_erp.sql` 上已暴露 MySQL 语法解析失败；任务 15 前需要支持 MySQL DDL 方言或 dump 预处理，并补充回归测试 |
+| 真实语料包含当前非目标 SQL 方言 | 中 | MySQL dump 兼容不作为任务 15 前置待办；如果语料包含 jshERP 这类 MySQL dump，需要先重新确认验收范围或转换输入语料 |
 | 召回结果看似相关但工程上不可用 | 高 | 评测集必须标注期望来源引用，不只看自然语言相似 |
 | MCP 和 HTTP 行为漂移 | 中 | MCP 只调用 HTTP 接口，不复制检索逻辑 |
-| 嵌入模型服务不稳定 | 中 | embedding provider 可配置，错误路径必须可诊断；当前只实现 DashScope native provider，后续接入 OpenAI/Jina 需要新增 OpenAI-compatible provider 并重建对应向量数据 |
+| 嵌入模型服务不稳定 | 中 | embedding provider 可配置，错误路径必须可诊断；当前支持 DashScope native、OpenAI-compatible 和 Jina task mode，查询和写入必须使用匹配的 provider/model/dimension/task identity |
 | MVP 范围膨胀 | 高 | 以 ADR 中排除项为准，新增范围需新增 ADR |
 
 ## 待确认问题
 
 - 真实评测语料使用哪个脱敏 Java 项目。
-- 初始化索引 CLI 第一版命令名是否固定为 `acp-index`。
-- embedding 首版具体服务、模型名、向量维度和 batch size。
 - OpenAI-compatible 外部 LLM 的 provider、模型名和配置方式。
