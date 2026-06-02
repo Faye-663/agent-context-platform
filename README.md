@@ -250,7 +250,7 @@ uv run --extra test pytest
 
 当前任务 14 后验证结果：
 
-- `uv run --extra test pytest`：`77 passed`
+- `uv run --extra test pytest`：`78 passed`
 
 ### 固定评测集回归
 
@@ -288,7 +288,7 @@ uv run --extra test pytest tests/test_mcp_server.py
 
 当前结果：
 
-- `uv run --extra test pytest tests/test_mcp_server.py`：`14 passed`
+- `uv run --extra test pytest tests/test_mcp_server.py`：`15 passed`
 
 ### Remote MCP HTTP 验证
 

@@ -194,3 +194,29 @@ def test_mcp_server_registers_tools_and_calls_context_api() -> None:
             },
         )
     ]
+
+
+def test_mcp_tool_descriptions_guide_agent_tool_selection() -> None:
+    server = create_mcp_server(http_client=FakeHttpClient(FakeResponse(200, {})))
+
+    async def list_tool_descriptions() -> dict[str, str]:
+        tools = await server.list_tools()
+        return {tool.name: tool.description or "" for tool in tools}
+
+    descriptions = asyncio.run(list_tool_descriptions())
+
+    for tool_name, description in descriptions.items():
+        assert "适用场景" in description, tool_name
+        assert "不适用" in description, tool_name
+        assert "输入建议" in description, tool_name
+        assert "输出使用" in description, tool_name
+        assert "兜底策略" in description, tool_name
+
+    build_task_context = descriptions["build_task_context"]
+    assert "默认优先入口" in build_task_context
+    assert "改代码前" in build_task_context
+    assert "task context" in build_task_context
+
+    assert "Java code" in descriptions["search_code"]
+    assert "SQL schema" in descriptions["search_db_schema"]
+    assert "Markdown docs" in descriptions["search_doc"]
