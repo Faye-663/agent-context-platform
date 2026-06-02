@@ -215,6 +215,8 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
 MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
 
+当前 `acp-mcp-server` 只提供默认 local stdio MCP；`ACP_CONTEXT_API_BASE_URL` 是 MCP wrapper 调用 Context API 的地址，不是 Agent 侧 remote MCP URL。remote MCP over HTTP 已作为后续任务记录在 [MVP 实施计划](docs/planning/mvp-implementation-plan.md#任务-16remote-mcp-over-http) 和 [MVP 产品需求](docs/product/mvp-requirements.md#remote-mcp-http-需求)，首版只考虑 HTTP `streamable-http`，不实现 SSE。
+
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
 当前任务 15 真实项目验证不再把 MySQL dump 兼容作为前置待办；如果后续语料选择包含 jshERP 这类 MySQL dump SQL 文件，需要先重新确认验收范围或转换输入语料。Jina/OpenAI-compatible provider 已完成真实端到端写入与检索验证。切换 provider、model、dimension 或 Jina task pair 时，必须使用匹配的 `item_embeddings` 向量空间，不能混用不同向量空间。

@@ -102,6 +102,26 @@ P0 不要求：
 - 多仓库关联。
 - 独立配置文件格式。
 
+## Remote MCP HTTP 需求
+
+当前 local MCP 通过 stdio 启动 `acp-mcp-server`，再由 MCP wrapper 调用 Context API。为支持远程 Agent 直接通过 MCP URL 接入，MVP 后续需要补充 remote MCP over HTTP。
+
+P0 范围固定为：
+
+- 保留 local stdio MCP 作为默认启动方式，现有本地 Agent 配置不需要迁移。
+- remote MCP 只支持 HTTP `streamable-http` transport，不支持 SSE。
+- remote MCP 暴露独立 MCP URL，例如 `http://127.0.0.1:8001/mcp` 或部署后的 `https://<domain>/mcp`。
+- `ACP_CONTEXT_API_BASE_URL` 继续表示 MCP wrapper 调用后端 Context API 的地址，不能作为 Agent 侧 remote MCP URL。
+- remote MCP 继续复用 `search_code`、`search_db_schema`、`search_doc` 和 `build_task_context` 工具，不复制检索、上下文构建或数据库访问逻辑。
+- remote MCP 的 host、port、path 必须可配置，并且默认不与 Context API 的 `127.0.0.1:8000` 监听地址冲突。
+
+P0 不要求：
+
+- SSE transport。
+- 完整权限系统。
+- 将 MCP endpoint 和 Context API 强制挂在同一个端口或同一个 ASGI app 下。
+- 新增独立检索逻辑、HTTP ingest endpoint 或数据库直连路径。
+
 ## 明确排除项
 
 | 不做项 | 原因 |
@@ -114,6 +134,7 @@ P0 不要求：
 | 权限系统 | MVP 先在内部验证环境中运行 |
 | 人工搜索 UI | 首个工作流是 Agent Tool，不是人工检索 |
 | 泛知识库问答 | 容易偏离工程上下文系统定位 |
+| SSE remote MCP | remote MCP 首版只验证 HTTP `streamable-http`，减少 transport 分支和兼容性风险 |
 
 ## 成功标准
 
@@ -135,3 +156,4 @@ MVP 通过固定评测集验收。
 - 示例数据必须脱敏，不写入真实企业内部标识。
 - 文档和接口命名保留必要技术英文，例如 `Hybrid Search`、`TaskContext`、`MCP`。
 - 后续实现涉及具体框架 API 时，必须以官方文档为准，不凭记忆实现。
+- remote MCP 对外暴露前必须单独确认 HTTPS、认证和反向代理边界；P0 只承诺受控环境内的 HTTP MCP 可用性验证。
