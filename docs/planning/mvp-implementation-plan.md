@@ -17,6 +17,7 @@
 - MVP 使用 PostgreSQL + pgvector，不引入 Milvus、Neo4j、OpenSearch。
 - PostgreSQL 和 pgvector 本地开发默认使用本机安装。
 - 当前 MVP 不依赖 LLM；embedding 独立选择外部 EmbeddingProvider。后续如引入摘要、解释或评测辅助，再单独确认 OpenAI-compatible LLM 配置。
+- MCP 包装层默认继续支持本地 stdio；remote MCP 只使用 HTTP `streamable-http` transport，不实现 SSE。
 - 召回质量必须通过固定评测集验证。
 
 ## 阶段 1：基础能力
@@ -372,6 +373,40 @@
 
 **预估范围：** 中
 
+### 任务 16：Remote MCP over HTTP
+
+**说明：** 在保留默认 local stdio MCP 的前提下，为远程 Agent 接入提供 HTTP MCP endpoint。remote MCP 只支持 MCP SDK 的 `streamable-http` transport；MCP server 仍然只调用 Context API，不直接访问数据库或 repository。
+
+**验收标准：**
+
+- [x] `acp-mcp-server` 默认启动方式保持 stdio，现有 local MCP 配置无需迁移。
+- [x] 可通过配置显式启用 HTTP remote MCP，例如 `ACP_MCP_TRANSPORT=streamable-http`。
+- [x] remote MCP 暴露独立 HTTP endpoint，例如 `/mcp`；该 URL 与 `ACP_CONTEXT_API_BASE_URL` 明确区分。
+- [x] 支持配置 remote MCP 的 host、port 和 path，默认不与 Context API 的 `127.0.0.1:8000` 抢占同一监听端口。
+- [x] 不支持 `sse` transport；配置为 `sse` 或其他未知 transport 时启动失败并给出明确错误。
+- [x] remote MCP 仍复用现有 `search_code`、`search_db_schema`、`search_doc` 和 `build_task_context` 工具定义，不复制检索逻辑。
+
+**验证方式：**
+
+- [x] 单元测试覆盖默认 stdio、HTTP remote 配置解析、非法 transport 和非法端口 / path。
+- [x] 使用 `streamable-http` 启动 remote MCP，验证 Agent 或 MCP client 可以通过 `/mcp` 完成 `list_tools`。
+- [x] 对 remote MCP 调用 `build_task_context`，确认返回真实 Context API 结果且错误路径可诊断。
+- [x] README 或运行文档明确区分 local stdio MCP、remote MCP URL 和 Context API URL。
+
+**非目标：**
+
+- [ ] 不实现 SSE remote MCP。
+- [ ] 不改变 local stdio 的默认行为。
+- [ ] 不把 `ACP_CONTEXT_API_BASE_URL` 暴露为 Agent 需要填写的 MCP server URL。
+- [ ] 不新增独立检索逻辑或数据库访问路径。
+- [ ] 不在本任务内实现完整权限系统；公开互联网部署前需单独确认认证、HTTPS 和反向代理边界。
+
+**依赖：** 任务 9、任务 11
+
+**预估范围：** 小
+
+阶段五实际验证记录见 [阶段五实际验证记录](phase-5-verification.md)。当前 remote MCP HTTP 使用 `streamable-http`，默认监听 `127.0.0.1:8001/mcp`；`ACP_CONTEXT_API_BASE_URL` 仍然只表示 MCP wrapper 调用的 Context API 地址。
+
 ### 检查点：真实可用 MVP 收口
 
 - [x] Context API 可以通过固定 ASGI 入口长期运行。
@@ -379,6 +414,7 @@
 - [x] 真实索引流程可以生成并保存 embedding。
 - [x] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
 - [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
+- [x] Remote MCP HTTP endpoint 可以被 Agent 或 MCP client 调用。
 
 ## 风险与应对
 
@@ -388,9 +424,11 @@
 | 真实语料包含当前非目标 SQL 方言 | 中 | MySQL dump 兼容不作为任务 15 前置待办；如果语料包含 jshERP 这类 MySQL dump，需要先重新确认验收范围或转换输入语料 |
 | 召回结果看似相关但工程上不可用 | 高 | 评测集必须标注期望来源引用，不只看自然语言相似 |
 | MCP 和 HTTP 行为漂移 | 中 | MCP 只调用 HTTP 接口，不复制检索逻辑 |
+| Remote MCP 暴露后被误认为 Context API 或绕过部署边界 | 中 | 文档和配置明确区分 remote MCP URL、Context API URL 和 local stdio；公开部署前单独确认认证与 HTTPS |
 | 嵌入模型服务不稳定 | 中 | embedding provider 可配置，错误路径必须可诊断；当前支持 DashScope native、OpenAI-compatible 和 Jina task mode，查询和写入必须使用匹配的 provider/model/dimension/task identity |
 | MVP 范围膨胀 | 高 | 以 ADR 中排除项为准，新增范围需新增 ADR |
 
 ## 待确认问题
 
 - 真实评测语料使用哪个脱敏 Java 项目。
+- Remote MCP 正式对外部署时使用内网主机还是带 HTTPS 的远程域名。

@@ -7,7 +7,9 @@ import pytest
 from agent_context_platform.mcp_server import (
     ContextApiError,
     ContextApiToolClient,
+    McpServerConfigError,
     create_mcp_server,
+    load_mcp_server_settings,
     _decode_json,
 )
 
@@ -29,6 +31,66 @@ class FakeHttpClient:
     def post(self, path: str, json: dict[str, object]) -> FakeResponse:
         self.calls.append((path, json))
         return self.response
+
+
+def test_load_mcp_server_settings_defaults_to_stdio() -> None:
+    settings = load_mcp_server_settings({})
+
+    assert settings.context_api_base_url == "http://127.0.0.1:8000"
+    assert settings.transport == "stdio"
+    assert settings.host == "127.0.0.1"
+    assert settings.port == 8001
+    assert settings.path == "/mcp"
+
+
+def test_load_mcp_server_settings_reads_streamable_http_values() -> None:
+    settings = load_mcp_server_settings(
+        {
+            "ACP_CONTEXT_API_BASE_URL": "https://context-api.example.com",
+            "ACP_MCP_TRANSPORT": "streamable-http",
+            "ACP_MCP_HOST": "0.0.0.0",
+            "ACP_MCP_PORT": "9001",
+            "ACP_MCP_PATH": "/agent-context",
+        }
+    )
+
+    assert settings.context_api_base_url == "https://context-api.example.com"
+    assert settings.transport == "streamable-http"
+    assert settings.host == "0.0.0.0"
+    assert settings.port == 9001
+    assert settings.path == "/agent-context"
+
+
+@pytest.mark.parametrize(
+    ("environ", "message"),
+    [
+        ({"ACP_MCP_TRANSPORT": "sse"}, "ACP_MCP_TRANSPORT"),
+        ({"ACP_MCP_TRANSPORT": "websocket"}, "ACP_MCP_TRANSPORT"),
+        ({"ACP_MCP_PORT": "not-a-number"}, "ACP_MCP_PORT"),
+        ({"ACP_MCP_PORT": "0"}, "ACP_MCP_PORT"),
+        ({"ACP_MCP_PORT": "65536"}, "ACP_MCP_PORT"),
+        ({"ACP_MCP_PATH": ""}, "ACP_MCP_PATH"),
+        ({"ACP_MCP_PATH": "mcp"}, "ACP_MCP_PATH"),
+    ],
+)
+def test_load_mcp_server_settings_rejects_invalid_values(
+    environ: dict[str, str], message: str
+) -> None:
+    with pytest.raises(McpServerConfigError, match=message):
+        load_mcp_server_settings(environ)
+
+
+def test_create_mcp_server_configures_streamable_http_endpoint() -> None:
+    server = create_mcp_server(
+        http_client=FakeHttpClient(FakeResponse(200, {})),
+        host="0.0.0.0",
+        port=9001,
+        path="/agent-context",
+    )
+
+    assert server.settings.host == "0.0.0.0"
+    assert server.settings.port == 9001
+    assert server.settings.streamable_http_path == "/agent-context"
 
 
 def test_build_task_context_tool_posts_http_contract_payload() -> None:
