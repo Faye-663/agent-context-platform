@@ -122,6 +122,26 @@ P0 不要求：
 - 将 MCP endpoint 和 Context API 强制挂在同一个端口或同一个 ASGI app 下。
 - 新增独立检索逻辑、HTTP ingest endpoint 或数据库直连路径。
 
+## MCP 调试日志需求
+
+调试和固定评测时，工程师需要复盘 Agent 实际调用了哪个 MCP tool、传入了什么结构化参数、Context API 返回了什么结果或错误，以及单次调用耗时。MVP 需要提供服务端可落盘的 MCP 调试日志，避免只能依赖 Agent 侧界面或临时终端输出判断问题。
+
+P0 范围固定为：
+
+- 提供可选 JSONL 日志文件配置；未显式配置时，`acp-mcp-server` 不写 MCP 调试日志。
+- 每次 MCP tool 调用记录 tool name、request id、调用状态、耗时和轻量摘要，便于定位空召回、错误返回和慢调用。
+- “真实 Agent 请求”以 FastMCP 完成 schema 解析后的 tool name 和 structured arguments 为准；P0 不抓 raw JSON-RPC wire frame。
+- 默认不记录完整请求和完整返回正文，避免把 task、query、source content 或 metadata 默认落盘。
+- 仅在显式 debug / evaluation 开关启用时，允许写入完整 tool arguments 和 tool result payload。
+- stdio MCP 下不得向 stdout 写调试内容，避免破坏 MCP JSON-RPC 消息流。
+
+P0 不要求：
+
+- 通过 MCP logging notification 向 Agent 侧实时推送日志。
+- 持久化 raw JSON-RPC 协议帧。
+- 日志轮转、压缩、采样或集中式日志上报。
+- 对 payload 内容做字段级脱敏；开启完整 payload 日志前由调用方确认运行环境和数据边界。
+
 ## 明确排除项
 
 | 不做项 | 原因 |
