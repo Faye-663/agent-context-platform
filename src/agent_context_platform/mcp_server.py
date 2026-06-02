@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from json import JSONDecodeError
+from pathlib import Path
 from typing import Any, Literal, Protocol, cast
+from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 McpTransport = Literal["stdio", "streamable-http"]
 _VALID_MCP_TRANSPORTS = {"stdio", "streamable-http"}
+logger = logging.getLogger(__name__)
 
 
 class HttpResponse(Protocol):
@@ -56,6 +62,8 @@ class McpServerSettings:
     host: str
     port: int
     path: str
+    log_file: str | None
+    log_payloads: bool
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,73 @@ class JsonHttpResponse:
 
     def json(self) -> dict[str, Any]:
         return self.payload
+
+
+class McpTraceLogger:
+    """把 MCP tool 调用写成 JSONL，供调试和评测复盘。
+
+    日志写入失败只影响观测能力，不应改变一次成功的 MCP tool 调用结果。
+    """
+
+    def __init__(self, *, log_file: str | Path, include_payloads: bool = False) -> None:
+        self.log_file = Path(log_file)
+        self.include_payloads = include_payloads
+
+    def trace(
+        self,
+        *,
+        tool: str,
+        arguments: dict[str, Any],
+        call: Callable[[], dict[str, Any]],
+    ) -> dict[str, Any]:
+        mcp_call_id = str(uuid4())
+        started = time.perf_counter()
+        try:
+            response = call()
+        except ContextApiError as exc:
+            self._write_event(
+                _build_error_event(
+                    tool=tool,
+                    arguments=arguments,
+                    mcp_call_id=mcp_call_id,
+                    elapsed_ms=_elapsed_ms(started),
+                    exc=exc,
+                    include_payloads=self.include_payloads,
+                )
+            )
+            raise
+        except Exception as exc:
+            self._write_event(
+                _build_unhandled_error_event(
+                    tool=tool,
+                    arguments=arguments,
+                    mcp_call_id=mcp_call_id,
+                    elapsed_ms=_elapsed_ms(started),
+                    exc=exc,
+                    include_payloads=self.include_payloads,
+                )
+            )
+            raise
+
+        self._write_event(
+            _build_success_event(
+                tool=tool,
+                arguments=arguments,
+                mcp_call_id=mcp_call_id,
+                elapsed_ms=_elapsed_ms(started),
+                response=response,
+                include_payloads=self.include_payloads,
+            )
+        )
+        return response
+
+    def _write_event(self, event: dict[str, Any]) -> None:
+        try:
+            with self.log_file.open("a", encoding="utf-8", newline="\n") as log:
+                log.write(json.dumps(event, ensure_ascii=False, sort_keys=True))
+                log.write("\n")
+        except OSError:
+            logger.exception("mcp_trace_log_write_failed path=%s", self.log_file)
 
 
 class ContextApiHttpClient:
@@ -104,8 +179,14 @@ class ContextApiHttpClient:
 
 
 class ContextApiToolClient:
-    def __init__(self, http_client: HttpClient):
+    def __init__(
+        self,
+        http_client: HttpClient,
+        *,
+        trace_logger: McpTraceLogger | None = None,
+    ):
         self.http_client = http_client
+        self.trace_logger = trace_logger
 
     def search_code(
         self,
@@ -117,6 +198,7 @@ class ContextApiToolClient:
         request_id: str | None = None,
     ) -> dict[str, Any]:
         return self._post_search(
+            "search_code",
             "/search-code",
             query=query,
             limit=limit,
@@ -135,6 +217,7 @@ class ContextApiToolClient:
         request_id: str | None = None,
     ) -> dict[str, Any]:
         return self._post_search(
+            "search_db_schema",
             "/search-db-schema",
             query=query,
             limit=limit,
@@ -153,6 +236,7 @@ class ContextApiToolClient:
         request_id: str | None = None,
     ) -> dict[str, Any]:
         return self._post_search(
+            "search_doc",
             "/search-doc",
             query=query,
             limit=limit,
@@ -176,10 +260,11 @@ class ContextApiToolClient:
         }
         if request_id is not None:
             payload["request_id"] = request_id
-        return self._post("/build-task-context", payload)
+        return self._post_tool("build_task_context", "/build-task-context", payload)
 
     def _post_search(
         self,
+        tool: str,
         path: str,
         *,
         query: str,
@@ -198,7 +283,18 @@ class ContextApiToolClient:
             payload["query_embedding"] = query_embedding
         if request_id is not None:
             payload["request_id"] = request_id
-        return self._post(path, payload)
+        return self._post_tool(tool, path, payload)
+
+    def _post_tool(
+        self, tool: str, path: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        if self.trace_logger is None:
+            return self._post(path, payload)
+        return self.trace_logger.trace(
+            tool=tool,
+            arguments=payload,
+            call=lambda: self._post(path, payload),
+        )
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         response = self.http_client.post(path, json=payload)
@@ -221,6 +317,7 @@ def create_mcp_server(
     host: str = "127.0.0.1",
     port: int = 8001,
     path: str = "/mcp",
+    trace_logger: McpTraceLogger | None = None,
 ):
     from mcp.server.fastmcp import FastMCP
 
@@ -232,7 +329,10 @@ def create_mcp_server(
         streamable_http_path=path,
         json_response=True,
     )
-    tool_client = ContextApiToolClient(http_client or ContextApiHttpClient(base_url))
+    tool_client = ContextApiToolClient(
+        http_client or ContextApiHttpClient(base_url),
+        trace_logger=trace_logger,
+    )
 
     @server.tool()
     def search_code(
@@ -351,11 +451,20 @@ def create_mcp_server(
 
 def main() -> None:
     settings = load_mcp_server_settings()
+    trace_logger = (
+        McpTraceLogger(
+            log_file=settings.log_file,
+            include_payloads=settings.log_payloads,
+        )
+        if settings.log_file is not None
+        else None
+    )
     server = create_mcp_server(
         base_url=settings.context_api_base_url,
         host=settings.host,
         port=settings.port,
         path=settings.path,
+        trace_logger=trace_logger,
     )
     server.run(transport=settings.transport)
 
@@ -378,6 +487,11 @@ def load_mcp_server_settings(
         host=values.get("ACP_MCP_HOST", "127.0.0.1").strip() or "127.0.0.1",
         port=_parse_mcp_port(values.get("ACP_MCP_PORT", "8001")),
         path=_parse_mcp_path(values.get("ACP_MCP_PATH", "/mcp")),
+        log_file=_parse_mcp_log_file(values.get("ACP_MCP_LOG_FILE")),
+        log_payloads=_parse_bool(
+            values.get("ACP_MCP_LOG_PAYLOADS", "false"),
+            "ACP_MCP_LOG_PAYLOADS",
+        ),
     )
 
 
@@ -397,6 +511,149 @@ def _parse_mcp_path(value: str | None) -> str:
     if not path or not path.startswith("/"):
         raise McpServerConfigError("ACP_MCP_PATH 必须以 / 开头。")
     return path
+
+
+def _parse_mcp_log_file(value: str | None) -> str | None:
+    path = (value or "").strip()
+    if not path:
+        return None
+    log_path = Path(path)
+    parent = log_path.parent
+    if parent != Path(".") and not parent.exists():
+        raise McpServerConfigError("ACP_MCP_LOG_FILE 的父目录必须存在。")
+    if parent != Path(".") and not parent.is_dir():
+        raise McpServerConfigError("ACP_MCP_LOG_FILE 的父路径必须是目录。")
+    return path
+
+
+def _parse_bool(value: str | None, name: str) -> bool:
+    normalized = (value or "").strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise McpServerConfigError(f"{name} 必须是 true/false 类型值。")
+
+
+def _build_success_event(
+    *,
+    tool: str,
+    arguments: dict[str, Any],
+    mcp_call_id: str,
+    elapsed_ms: float,
+    response: dict[str, Any],
+    include_payloads: bool,
+) -> dict[str, Any]:
+    event = _base_trace_event(
+        tool=tool,
+        arguments=arguments,
+        mcp_call_id=mcp_call_id,
+        elapsed_ms=elapsed_ms,
+        status="ok",
+    )
+    event["summary"] = _summarize_response(response)
+    if include_payloads:
+        event["payload"] = {"arguments": arguments, "response": response}
+    return event
+
+
+def _build_error_event(
+    *,
+    tool: str,
+    arguments: dict[str, Any],
+    mcp_call_id: str,
+    elapsed_ms: float,
+    exc: ContextApiError,
+    include_payloads: bool,
+) -> dict[str, Any]:
+    event = _base_trace_event(
+        tool=tool,
+        arguments=arguments,
+        mcp_call_id=mcp_call_id,
+        elapsed_ms=elapsed_ms,
+        status="error",
+    )
+    event["summary"] = {"error_code": exc.code, "error_message": exc.message}
+    if include_payloads:
+        error: dict[str, Any] = {"code": exc.code, "message": exc.message}
+        if exc.details is not None:
+            error["details"] = exc.details
+        event["payload"] = {"arguments": arguments, "error": error}
+    return event
+
+
+def _build_unhandled_error_event(
+    *,
+    tool: str,
+    arguments: dict[str, Any],
+    mcp_call_id: str,
+    elapsed_ms: float,
+    exc: Exception,
+    include_payloads: bool,
+) -> dict[str, Any]:
+    event = _base_trace_event(
+        tool=tool,
+        arguments=arguments,
+        mcp_call_id=mcp_call_id,
+        elapsed_ms=elapsed_ms,
+        status="error",
+    )
+    event["summary"] = {
+        "error_code": type(exc).__name__,
+        "error_message": str(exc),
+    }
+    if include_payloads:
+        event["payload"] = {
+            "arguments": arguments,
+            "error": {
+                "code": type(exc).__name__,
+                "message": str(exc),
+            },
+        }
+    return event
+
+
+def _base_trace_event(
+    *,
+    tool: str,
+    arguments: dict[str, Any],
+    mcp_call_id: str,
+    elapsed_ms: float,
+    status: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "event": "mcp_tool_call",
+        "mcp_call_id": mcp_call_id,
+        "tool": tool,
+        "request_id": _request_id_from(arguments),
+        "status": status,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+def _request_id_from(arguments: dict[str, Any]) -> str | None:
+    request_id = arguments.get("request_id")
+    if request_id is None:
+        return None
+    return str(request_id)
+
+
+def _summarize_response(response: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {"response_keys": sorted(response.keys())}
+    results = response.get("results")
+    if isinstance(results, list):
+        summary["result_count"] = len(results)
+        return summary
+    citations = response.get("citations")
+    if isinstance(citations, list):
+        summary["result_count"] = len(citations)
+    return summary
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 2)
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:

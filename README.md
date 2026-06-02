@@ -138,6 +138,8 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 | `ACP_MCP_HOST` | 指定 remote MCP HTTP 监听 host | 默认 `127.0.0.1` |
 | `ACP_MCP_PORT` | 指定 remote MCP HTTP 监听 port | 默认 `8001`，必须是 `1..65535` |
 | `ACP_MCP_PATH` | 指定 remote MCP HTTP endpoint path | 默认 `/mcp`，必须以 `/` 开头 |
+| `ACP_MCP_LOG_FILE` | 指定 `acp-mcp-server` 调试 JSONL 日志文件 | 默认不写 MCP 调试日志；父目录必须已存在 |
+| `ACP_MCP_LOG_PAYLOADS` | 控制 MCP 调试日志是否写完整 tool arguments 和 tool result | 默认 `false`；仅调试或评测复盘时显式改为 `true` |
 | `ACP_EMBEDDING_PROVIDER` | 选择 embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
 | `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
 | `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认使用 `retrieval.passage` 写入 item embedding、`retrieval.query` 生成 query embedding，并在请求中启用 `truncate: true` 处理超长输入 |
@@ -226,6 +228,15 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 
    此时 Agent 侧 remote MCP URL 是 `http://127.0.0.1:8001/mcp`。`ACP_CONTEXT_API_BASE_URL` 仍然只是 MCP wrapper 调用 Context API 的地址。
 
+   调试或评测时，如果需要复盘 MCP tool 的真实结构化入参、返回摘要、错误和耗时，可以显式开启服务端 JSONL 日志。默认不记录完整 payload；只有设置 `ACP_MCP_LOG_PAYLOADS=true` 时才写入完整 tool arguments 和 tool result：
+
+   ```powershell
+   New-Item -ItemType Directory -Force logs
+   $env:ACP_MCP_LOG_FILE = "logs/acp-mcp-debug.jsonl"
+   $env:ACP_MCP_LOG_PAYLOADS = "false"
+   uv run acp-mcp-server
+   ```
+
 ## 当前启动边界
 
 固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
@@ -233,6 +244,8 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入、数据库侧 pgvector 相似度排序，以及 remote MCP HTTP `streamable-http` 启动能力。
 
 `acp-mcp-server` 默认保持 local stdio MCP；`ACP_CONTEXT_API_BASE_URL` 是 MCP wrapper 调用 Context API 的地址，不是 Agent 侧 remote MCP URL。remote MCP 使用独立 HTTP endpoint，例如 `http://127.0.0.1:8001/mcp`；当前不支持 SSE。
+
+MCP 调试 JSONL 日志默认关闭。开启 `ACP_MCP_LOG_FILE` 后，日志记录 FastMCP 完成 schema 解析后的 tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；它不抓 raw JSON-RPC wire frame。stdio MCP 下调试内容必须写入文件或 stderr，不能写 stdout，以免破坏 MCP JSON-RPC 消息流。
 
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
@@ -288,7 +301,7 @@ uv run --extra test pytest tests/test_mcp_server.py
 
 当前结果：
 
-- `uv run --extra test pytest tests/test_mcp_server.py`：`15 passed`
+- `uv run --extra test pytest tests/test_mcp_server.py`：`21 passed`
 
 ### Remote MCP HTTP 验证
 
@@ -306,6 +319,8 @@ uv run acp-mcp-server
 ```
 
 可使用 MCP streamable HTTP client 验证 `list_tools` 和 `build_task_context`；`ACP_MCP_TRANSPORT=sse` 会在启动配置解析阶段失败。
+
+如需同时验证 MCP JSONL 日志，先创建日志目录并设置 `ACP_MCP_LOG_FILE`。`ACP_MCP_LOG_PAYLOADS=false` 时日志只包含摘要；设置为 `true` 时会写完整请求和返回，可能包含 task、query、source content 或 metadata。
 
 ### 本地 PostgreSQL / pgvector 启动
 

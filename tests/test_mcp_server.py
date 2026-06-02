@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 import pytest
 
 from agent_context_platform.mcp_server import (
     ContextApiError,
     ContextApiToolClient,
+    McpTraceLogger,
     McpServerConfigError,
     create_mcp_server,
     load_mcp_server_settings,
@@ -41,9 +44,14 @@ def test_load_mcp_server_settings_defaults_to_stdio() -> None:
     assert settings.host == "127.0.0.1"
     assert settings.port == 8001
     assert settings.path == "/mcp"
+    assert settings.log_file is None
+    assert settings.log_payloads is False
 
 
-def test_load_mcp_server_settings_reads_streamable_http_values() -> None:
+def test_load_mcp_server_settings_reads_streamable_http_and_log_values(
+    tmp_path: Path,
+) -> None:
+    log_file = tmp_path / "mcp-debug.jsonl"
     settings = load_mcp_server_settings(
         {
             "ACP_CONTEXT_API_BASE_URL": "https://context-api.example.com",
@@ -51,6 +59,8 @@ def test_load_mcp_server_settings_reads_streamable_http_values() -> None:
             "ACP_MCP_HOST": "0.0.0.0",
             "ACP_MCP_PORT": "9001",
             "ACP_MCP_PATH": "/agent-context",
+            "ACP_MCP_LOG_FILE": str(log_file),
+            "ACP_MCP_LOG_PAYLOADS": "true",
         }
     )
 
@@ -59,6 +69,8 @@ def test_load_mcp_server_settings_reads_streamable_http_values() -> None:
     assert settings.host == "0.0.0.0"
     assert settings.port == 9001
     assert settings.path == "/agent-context"
+    assert settings.log_file == str(log_file)
+    assert settings.log_payloads is True
 
 
 @pytest.mark.parametrize(
@@ -71,6 +83,11 @@ def test_load_mcp_server_settings_reads_streamable_http_values() -> None:
         ({"ACP_MCP_PORT": "65536"}, "ACP_MCP_PORT"),
         ({"ACP_MCP_PATH": ""}, "ACP_MCP_PATH"),
         ({"ACP_MCP_PATH": "mcp"}, "ACP_MCP_PATH"),
+        ({"ACP_MCP_LOG_PAYLOADS": "sometimes"}, "ACP_MCP_LOG_PAYLOADS"),
+        (
+            {"ACP_MCP_LOG_FILE": "missing-parent/mcp.jsonl"},
+            "ACP_MCP_LOG_FILE",
+        ),
     ],
 )
 def test_load_mcp_server_settings_rejects_invalid_values(
@@ -140,6 +157,115 @@ def test_build_task_context_tool_raises_agent_readable_context_api_error() -> No
 
     with pytest.raises(ContextApiError, match="invalid_request: task must not be empty"):
         tool_client.build_task_context(task="")
+
+
+def test_mcp_trace_logger_does_not_create_log_when_disabled(tmp_path: Path) -> None:
+    log_file = tmp_path / "mcp-debug.jsonl"
+    tool_client = ContextApiToolClient(
+        FakeHttpClient(FakeResponse(200, {"results": []}))
+    )
+
+    result = tool_client.search_code(query="payment", request_id="req-1")
+
+    assert result == {"results": []}
+    assert not log_file.exists()
+
+
+def test_mcp_trace_logger_records_summary_without_payload(tmp_path: Path) -> None:
+    log_file = tmp_path / "mcp-debug.jsonl"
+    tool_client = ContextApiToolClient(
+        FakeHttpClient(FakeResponse(200, {"results": [{"title": "Payment"}]})),
+        trace_logger=McpTraceLogger(log_file=log_file, include_payloads=False),
+    )
+
+    tool_client.search_code(
+        query="payment",
+        filters={"language": "java"},
+        request_id="req-2",
+    )
+
+    event = _read_single_jsonl_event(log_file)
+    assert event["schema_version"] == 1
+    assert event["event"] == "mcp_tool_call"
+    assert event["tool"] == "search_code"
+    assert event["request_id"] == "req-2"
+    assert event["status"] == "ok"
+    assert event["elapsed_ms"] >= 0
+    assert event["mcp_call_id"]
+    assert event["summary"] == {
+        "result_count": 1,
+        "response_keys": ["results"],
+    }
+    assert "timestamp" in event
+    assert "payload" not in event
+
+
+def test_mcp_trace_logger_records_full_payload_when_enabled(tmp_path: Path) -> None:
+    log_file = tmp_path / "mcp-debug.jsonl"
+    response_payload = {"results": [{"title": "Payment"}]}
+    tool_client = ContextApiToolClient(
+        FakeHttpClient(FakeResponse(200, response_payload)),
+        trace_logger=McpTraceLogger(log_file=log_file, include_payloads=True),
+    )
+
+    tool_client.search_doc(
+        query="payment design",
+        limit=3,
+        filters={"path_prefix": "docs"},
+        request_id="req-3",
+    )
+
+    event = _read_single_jsonl_event(log_file)
+    assert event["summary"]["result_count"] == 1
+    assert event["payload"] == {
+        "arguments": {
+            "query": "payment design",
+            "limit": 3,
+            "filters": {"path_prefix": "docs"},
+            "request_id": "req-3",
+        },
+        "response": response_payload,
+    }
+
+
+def test_mcp_trace_logger_records_context_api_error(tmp_path: Path) -> None:
+    log_file = tmp_path / "mcp-debug.jsonl"
+    error_payload = {
+        "error": {
+            "code": "invalid_request",
+            "message": "task must not be empty",
+            "details": {"field": "task"},
+        }
+    }
+    tool_client = ContextApiToolClient(
+        FakeHttpClient(FakeResponse(400, error_payload)),
+        trace_logger=McpTraceLogger(log_file=log_file, include_payloads=True),
+    )
+
+    with pytest.raises(ContextApiError, match="invalid_request: task must not be empty"):
+        tool_client.build_task_context(task="", request_id="req-4")
+
+    event = _read_single_jsonl_event(log_file)
+    assert event["tool"] == "build_task_context"
+    assert event["request_id"] == "req-4"
+    assert event["status"] == "error"
+    assert event["summary"] == {
+        "error_code": "invalid_request",
+        "error_message": "task must not be empty",
+    }
+    assert event["payload"] == {
+        "arguments": {
+            "task": "",
+            "limits": {},
+            "constraints": {},
+            "request_id": "req-4",
+        },
+        "error": {
+            "code": "invalid_request",
+            "message": "task must not be empty",
+            "details": {"field": "task"},
+        },
+    }
 
 
 def test_non_json_context_api_error_becomes_agent_readable_error() -> None:
@@ -220,3 +346,9 @@ def test_mcp_tool_descriptions_guide_agent_tool_selection() -> None:
     assert "Java code" in descriptions["search_code"]
     assert "SQL schema" in descriptions["search_db_schema"]
     assert "Markdown docs" in descriptions["search_doc"]
+
+
+def _read_single_jsonl_event(log_file: Path) -> dict[str, object]:
+    events = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines()]
+    assert len(events) == 1
+    return events[0]
