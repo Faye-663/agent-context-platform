@@ -104,7 +104,7 @@ P0 不要求：
 
 ## Remote MCP HTTP 需求
 
-当前 local MCP 通过 stdio 启动 `acp-mcp-server`，再由 MCP wrapper 调用 Context API。为支持远程 Agent 直接通过 MCP URL 接入，MVP 后续需要补充 remote MCP over HTTP。
+当前 local MCP 通过 stdio 启动 `acp-mcp-server`，再由 MCP wrapper 调用 Context API。为支持远程 Agent 直接通过 MCP URL 接入，MVP 支持 remote MCP over HTTP。
 
 P0 范围固定为：
 

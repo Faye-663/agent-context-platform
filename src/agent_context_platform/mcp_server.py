@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from json import JSONDecodeError
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+McpTransport = Literal["stdio", "streamable-http"]
+_VALID_MCP_TRANSPORTS = {"stdio", "streamable-http"}
 
 
 class HttpResponse(Protocol):
@@ -34,6 +38,24 @@ class ContextApiError(RuntimeError):
         self.code = code
         self.message = message
         self.details = details
+
+
+class McpServerConfigError(ValueError):
+    """MCP server 启动配置错误。"""
+
+
+@dataclass(frozen=True)
+class McpServerSettings:
+    """`acp-mcp-server` 的启动配置。
+
+    `context_api_base_url` 是 MCP wrapper 调用 Context API 的地址，不是 Agent 侧 MCP URL。
+    """
+
+    context_api_base_url: str
+    transport: McpTransport
+    host: str
+    port: int
+    path: str
 
 
 @dataclass(frozen=True)
@@ -196,11 +218,20 @@ def create_mcp_server(
     *,
     base_url: str = "http://127.0.0.1:8000",
     http_client: HttpClient | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8001,
+    path: str = "/mcp",
 ):
     from mcp.server.fastmcp import FastMCP
 
     # FastMCP 只暴露工具壳；业务逻辑仍在 Context API，避免 MCP 和 HTTP 两套行为漂移。
-    server = FastMCP("agent-context-platform", json_response=True)
+    server = FastMCP(
+        "agent-context-platform",
+        host=host,
+        port=port,
+        streamable_http_path=path,
+        json_response=True,
+    )
     tool_client = ContextApiToolClient(http_client or ContextApiHttpClient(base_url))
 
     @server.tool()
@@ -273,9 +304,53 @@ def create_mcp_server(
 
 
 def main() -> None:
-    base_url = os.environ.get("ACP_CONTEXT_API_BASE_URL", "http://127.0.0.1:8000")
-    server = create_mcp_server(base_url=base_url)
-    server.run()
+    settings = load_mcp_server_settings()
+    server = create_mcp_server(
+        base_url=settings.context_api_base_url,
+        host=settings.host,
+        port=settings.port,
+        path=settings.path,
+    )
+    server.run(transport=settings.transport)
+
+
+def load_mcp_server_settings(
+    environ: Mapping[str, str] | None = None,
+) -> McpServerSettings:
+    values = dict(os.environ if environ is None else environ)
+    transport = values.get("ACP_MCP_TRANSPORT", "stdio").strip()
+    if transport not in _VALID_MCP_TRANSPORTS:
+        raise McpServerConfigError(
+            "ACP_MCP_TRANSPORT 只支持 stdio 或 streamable-http。"
+        )
+
+    return McpServerSettings(
+        context_api_base_url=values.get(
+            "ACP_CONTEXT_API_BASE_URL", "http://127.0.0.1:8000"
+        ).strip(),
+        transport=cast(McpTransport, transport),
+        host=values.get("ACP_MCP_HOST", "127.0.0.1").strip() or "127.0.0.1",
+        port=_parse_mcp_port(values.get("ACP_MCP_PORT", "8001")),
+        path=_parse_mcp_path(values.get("ACP_MCP_PATH", "/mcp")),
+    )
+
+
+def _parse_mcp_port(value: str | None) -> int:
+    raw_value = (value or "").strip()
+    try:
+        port = int(raw_value)
+    except ValueError as exc:
+        raise McpServerConfigError("ACP_MCP_PORT 必须是 1 到 65535 的整数。") from exc
+    if port < 1 or port > 65535:
+        raise McpServerConfigError("ACP_MCP_PORT 必须是 1 到 65535 的整数。")
+    return port
+
+
+def _parse_mcp_path(value: str | None) -> str:
+    path = (value or "").strip()
+    if not path or not path.startswith("/"):
+        raise McpServerConfigError("ACP_MCP_PATH 必须以 / 开头。")
+    return path
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:

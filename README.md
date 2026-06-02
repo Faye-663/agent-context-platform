@@ -134,6 +134,10 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
 | `ACP_LOG_LEVEL` | 指定应用日志级别 | 默认 `INFO` |
 | `ACP_SQL_ECHO` | 控制 SQLAlchemy 是否输出 SQL 日志 | 默认 `false` |
 | `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
+| `ACP_MCP_TRANSPORT` | 指定 `acp-mcp-server` 的 MCP transport | 默认 `stdio`；remote MCP 只支持 `streamable-http`，不支持 SSE |
+| `ACP_MCP_HOST` | 指定 remote MCP HTTP 监听 host | 默认 `127.0.0.1` |
+| `ACP_MCP_PORT` | 指定 remote MCP HTTP 监听 port | 默认 `8001`，必须是 `1..65535` |
+| `ACP_MCP_PATH` | 指定 remote MCP HTTP endpoint path | 默认 `/mcp`，必须以 `/` 开头 |
 | `ACP_EMBEDDING_PROVIDER` | 选择 embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
 | `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
 | `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认使用 `retrieval.passage` 写入 item embedding、`retrieval.query` 生成 query embedding，并在请求中启用 `truncate: true` 处理超长输入 |
@@ -209,13 +213,26 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    uv run acp-mcp-server
    ```
 
+   默认启动的是 local stdio MCP。Agent 如果需要 remote MCP URL，可以改用 HTTP `streamable-http`：
+
+   ```powershell
+   $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
+   $env:ACP_MCP_TRANSPORT = "streamable-http"
+   $env:ACP_MCP_HOST = "127.0.0.1"
+   $env:ACP_MCP_PORT = "8001"
+   $env:ACP_MCP_PATH = "/mcp"
+   uv run acp-mcp-server
+   ```
+
+   此时 Agent 侧 remote MCP URL 是 `http://127.0.0.1:8001/mcp`。`ACP_CONTEXT_API_BASE_URL` 仍然只是 MCP wrapper 调用 Context API 的地址。
+
 ## 当前启动边界
 
 固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
 
-MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入和数据库侧 pgvector 相似度排序。
+MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入、数据库侧 pgvector 相似度排序，以及 remote MCP HTTP `streamable-http` 启动能力。
 
-当前 `acp-mcp-server` 只提供默认 local stdio MCP；`ACP_CONTEXT_API_BASE_URL` 是 MCP wrapper 调用 Context API 的地址，不是 Agent 侧 remote MCP URL。remote MCP over HTTP 已作为后续任务记录在 [MVP 实施计划](docs/planning/mvp-implementation-plan.md#任务-16remote-mcp-over-http) 和 [MVP 产品需求](docs/product/mvp-requirements.md#remote-mcp-http-需求)，首版只考虑 HTTP `streamable-http`，不实现 SSE。
+`acp-mcp-server` 默认保持 local stdio MCP；`ACP_CONTEXT_API_BASE_URL` 是 MCP wrapper 调用 Context API 的地址，不是 Agent 侧 remote MCP URL。remote MCP 使用独立 HTTP endpoint，例如 `http://127.0.0.1:8001/mcp`；当前不支持 SSE。
 
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
 
@@ -233,7 +250,7 @@ uv run --extra test pytest
 
 当前任务 14 后验证结果：
 
-- `uv run --extra test pytest`：`63 passed`
+- `uv run --extra test pytest`：`77 passed`
 
 ### 固定评测集回归
 
@@ -271,7 +288,24 @@ uv run --extra test pytest tests/test_mcp_server.py
 
 当前结果：
 
-- `uv run --extra test pytest tests/test_mcp_server.py`：`4 passed`
+- `uv run --extra test pytest tests/test_mcp_server.py`：`14 passed`
+
+### Remote MCP HTTP 验证
+
+启动 remote MCP 前，需要先启动 Context API。remote MCP 默认 URL 为 `http://127.0.0.1:8001/mcp`：
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
+$env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
+$env:ACP_MCP_TRANSPORT = "streamable-http"
+$env:ACP_MCP_HOST = "127.0.0.1"
+$env:ACP_MCP_PORT = "8001"
+$env:ACP_MCP_PATH = "/mcp"
+uv run acp-mcp-server
+```
+
+可使用 MCP streamable HTTP client 验证 `list_tools` 和 `build_task_context`；`ACP_MCP_TRANSPORT=sse` 会在启动配置解析阶段失败。
 
 ### 本地 PostgreSQL / pgvector 启动
 

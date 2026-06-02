@@ -30,13 +30,51 @@
 - embedding 写入必须显式传入 `--with-embedding`，并要求完整 `ACP_EMBEDDING_*` 配置，不会因为环境变量存在而自动调用外部 provider。
 - `ACP_EMBEDDING_PROVIDER` 可选择 `dashscope`、`openai` 或 `jina`；不填写时保持历史默认 `dashscope`。
 
+任务 16 当前覆盖：
+
+- `acp-mcp-server` 默认保持 local stdio MCP。
+- remote MCP 支持 HTTP `streamable-http` transport，可通过 `ACP_MCP_TRANSPORT=streamable-http` 启用。
+- remote MCP 默认监听 `127.0.0.1:8001/mcp`，并可通过 `ACP_MCP_HOST`、`ACP_MCP_PORT`、`ACP_MCP_PATH` 覆盖。
+- `ACP_CONTEXT_API_BASE_URL` 仍然只表示 MCP wrapper 调用的 Context API 地址，不是 Agent 侧 remote MCP URL。
+- 不支持 SSE；`ACP_MCP_TRANSPORT=sse` 会在启动配置解析阶段失败。
+
 ## 已执行验证
 
 ### 单元与回归验证
 
 ```text
 uv run --extra test pytest
-63 passed
+77 passed
+```
+
+```text
+uv run --extra test pytest tests/test_mcp_server.py
+14 passed
+```
+
+### Remote MCP HTTP 验证
+
+前置 Context API 检查：
+
+```text
+POST http://127.0.0.1:8000/build-task-context
+query=remote MCP smoke 前置 HTTP API 检查
+missing_context=[]
+```
+
+remote MCP 以 `ACP_MCP_TRANSPORT=streamable-http` 启动后，通过 MCP streamable HTTP client 调用 `http://127.0.0.1:8001/mcp`。
+
+验证输出摘要：
+
+```text
+tools=search_code,search_db_schema,search_doc,build_task_context
+is_error=false
+query=验证 remote MCP HTTP 调用是否可用
+related_code_count=1
+related_db_schema_count=0
+related_docs_count=1
+missing_context=db_schema
+citation_count=6
 ```
 
 ```text
@@ -280,3 +318,4 @@ $env:ACP_EMBEDDING_QUERY_TASK = "retrieval.query"
 - Alembic 和 `acp-index` 当前只读取进程环境变量，不会自动加载 `.env`。真实验证命令必须先在当前 PowerShell 进程加载 `.env` 或显式设置 `$env:ACP_DATABASE_URL`、`$env:ACP_EMBEDDING_*`；`uvicorn --env-file .env` 不能替代迁移和 CLI 的环境加载。
 - MySQL dump 兼容当前不是任务 15 前置待办；如果真实评测语料选择包含 jshERP 这类 MySQL dump SQL 文件，需要先重新确认验收范围或转换输入语料。
 - DashScope/OpenAI/Jina 以及不同 Jina task pair 的向量空间不兼容；查询和写入必须使用匹配的 `item_embeddings` provider/model/dimension/task identity。
+- Remote MCP 当前只验证受控环境内的 HTTP `streamable-http`；正式对外暴露前仍需单独确认 HTTPS、认证和反向代理边界。

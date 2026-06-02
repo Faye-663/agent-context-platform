@@ -379,19 +379,19 @@
 
 **验收标准：**
 
-- [ ] `acp-mcp-server` 默认启动方式保持 stdio，现有 local MCP 配置无需迁移。
-- [ ] 可通过配置显式启用 HTTP remote MCP，例如 `ACP_MCP_TRANSPORT=streamable-http`。
-- [ ] remote MCP 暴露独立 HTTP endpoint，例如 `/mcp`；该 URL 与 `ACP_CONTEXT_API_BASE_URL` 明确区分。
-- [ ] 支持配置 remote MCP 的 host、port 和 path，默认不与 Context API 的 `127.0.0.1:8000` 抢占同一监听端口。
-- [ ] 不支持 `sse` transport；配置为 `sse` 或其他未知 transport 时启动失败并给出明确错误。
-- [ ] remote MCP 仍复用现有 `search_code`、`search_db_schema`、`search_doc` 和 `build_task_context` 工具定义，不复制检索逻辑。
+- [x] `acp-mcp-server` 默认启动方式保持 stdio，现有 local MCP 配置无需迁移。
+- [x] 可通过配置显式启用 HTTP remote MCP，例如 `ACP_MCP_TRANSPORT=streamable-http`。
+- [x] remote MCP 暴露独立 HTTP endpoint，例如 `/mcp`；该 URL 与 `ACP_CONTEXT_API_BASE_URL` 明确区分。
+- [x] 支持配置 remote MCP 的 host、port 和 path，默认不与 Context API 的 `127.0.0.1:8000` 抢占同一监听端口。
+- [x] 不支持 `sse` transport；配置为 `sse` 或其他未知 transport 时启动失败并给出明确错误。
+- [x] remote MCP 仍复用现有 `search_code`、`search_db_schema`、`search_doc` 和 `build_task_context` 工具定义，不复制检索逻辑。
 
 **验证方式：**
 
-- [ ] 单元测试覆盖默认 stdio、HTTP remote 配置解析、非法 transport 和非法端口 / path。
-- [ ] 使用 `streamable-http` 启动 remote MCP，验证 Agent 或 MCP client 可以通过 `/mcp` 完成 `list_tools`。
-- [ ] 对 remote MCP 调用 `build_task_context`，确认返回真实 Context API 结果且错误路径可诊断。
-- [ ] README 或运行文档明确区分 local stdio MCP、remote MCP URL 和 Context API URL。
+- [x] 单元测试覆盖默认 stdio、HTTP remote 配置解析、非法 transport 和非法端口 / path。
+- [x] 使用 `streamable-http` 启动 remote MCP，验证 Agent 或 MCP client 可以通过 `/mcp` 完成 `list_tools`。
+- [x] 对 remote MCP 调用 `build_task_context`，确认返回真实 Context API 结果且错误路径可诊断。
+- [x] README 或运行文档明确区分 local stdio MCP、remote MCP URL 和 Context API URL。
 
 **非目标：**
 
@@ -405,6 +405,8 @@
 
 **预估范围：** 小
 
+阶段五实际验证记录见 [阶段五实际验证记录](phase-5-verification.md)。当前 remote MCP HTTP 使用 `streamable-http`，默认监听 `127.0.0.1:8001/mcp`；`ACP_CONTEXT_API_BASE_URL` 仍然只表示 MCP wrapper 调用的 Context API 地址。
+
 ### 检查点：真实可用 MVP 收口
 
 - [x] Context API 可以通过固定 ASGI 入口长期运行。
@@ -412,7 +414,7 @@
 - [x] 真实索引流程可以生成并保存 embedding。
 - [x] 检索在 PostgreSQL / pgvector 侧完成向量相似度排序。
 - [ ] 真实脱敏 Java 项目评测达到 MVP 成功标准。
-- [ ] Remote MCP HTTP endpoint 可以被 Agent 或 MCP client 调用。
+- [x] Remote MCP HTTP endpoint 可以被 Agent 或 MCP client 调用。
 
 ## 风险与应对
 
@@ -429,4 +431,4 @@
 ## 待确认问题
 
 - 真实评测语料使用哪个脱敏 Java 项目。
-- Remote MCP 首个验证环境使用本机回环地址、内网主机，还是带 HTTPS 的远程域名。
+- Remote MCP 正式对外部署时使用内网主机还是带 HTTPS 的远程域名。
