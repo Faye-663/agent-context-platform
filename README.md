@@ -4,149 +4,98 @@
 
 ## 当前阶段
 
-项目处于 MVP 阶段五收口中。当前仓库已包含需求、架构、接口、实施计划、评测方案、关键决策记录，以及阶段一公共模型、阶段二离线索引器、阶段三检索 / Context API / 任务上下文构建代码、阶段四 MCP 包装层 / 固定评测回归脚本和阶段五固定 ASGI 入口 / 运行配置加载能力、DashScope 与 OpenAI-compatible embedding provider、批量 embedding 写入能力、数据库侧 pgvector 相似度排序与真实项目初始化索引 CLI。
+agent-context-platform 按生产级项目维护当前文档和运行边界。当前进展是阶段 0：MVP 开发与验收已完成；后续进入阶段 1：生产化建设，具体计划待定。
 
-已实现范围：
+当前正式文档不把后续生产化计划写成既定路线图。正式开发计划和正式测评体系待后续确认。
+
+当前已实现能力：
 
 - 公共 Pydantic 模型：`IndexedItem`、`SourceCitation`、`SearchResult`、`TaskContext`。
-- SQLAlchemy 存储模型与 `IndexedItemRepository`。
-- Alembic 初始迁移，包含 `indexed_items` 表和 PostgreSQL `vector` 扩展。
-- 阶段一单元测试，覆盖三类来源引用、JSON 序列化、存储读写和 pgvector 字段声明。
-- Java 离线索引器：基于 `tree-sitter-java` 抽取 class、method、annotation、signature、file path 和 line range。
-- SQL DDL 离线索引器：基于 `sqlglot` 抽取 table、column、index 和 DDL 来源。
-- Markdown 离线索引器：基于 `markdown-it-py` 抽取 heading path、正文片段、file path 和 line range。
-- 阶段二单元测试与实际落盘验证，覆盖三类样本索引、来源引用和 repository 写读链路。
-- 混合检索：支持关键词分数、embedding 余弦相似度、结构化过滤和统一 `SearchResult`。
-- Context API：提供 `search-code`、`search-db-schema`、`search-doc` 三类检索接口。
-- `build-task-context`：聚合代码、表结构、文档和相似实现，并在上下文不足时返回 `missing_context` 与 `risks`。
-- 阶段三测试与运行时验证脚本，覆盖接口响应、日志、错误路径和真实数据库写读检索链路。
-- MCP 包装层：基于 MCP Python SDK `FastMCP` 暴露 `search-code`、`search-db-schema`、`search-doc` 和 `build-task-context` 对应工具，包装层只调用 Context API。
-- 固定评测集与回归脚本：包含 10 个脱敏半真实工程任务样本，可计算 Top5 命中率、Top10 明显无关结果数量和来源引用完整率。
-- 固定 ASGI 入口与运行配置加载：提供 `agent_context_platform.asgi:app`、`ACP_DATABASE_URL` 运行配置和 embedding provider 配置校验。
-- EmbeddingProvider：通过 `ACP_EMBEDDING_*` 配置生成 query embedding 和 item embedding，当前支持 DashScope native、OpenAI-compatible 和 Jina task mode。
-- 多模型 embedding 存储：`item_embeddings` 按 `provider`、`model`、`dimension` 保存 embedding，避免把当前模型维度固定进 `indexed_items` 主表。
-- 批量 embedding 写入：支持把 Java、SQL、Markdown 三类离线索引结果生成 embedding 后落库。
-- 数据库侧 pgvector 相似度排序：provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 的 `<=>` 完成 query embedding 相似度排序，并保留关键词候选的有界合并。
-- 初始化索引 CLI：提供 `acp-index --root <path>`，支持 `dry-run`、include/exclude、显式 repo 标识、复用 `ACP_DATABASE_URL` 写库和显式 `--with-embedding` 写入 embedding。
-
-尚不满足真实可用 MVP 的项：
-
-- 基于真实脱敏 Java 项目索引库的召回评测。
-
-阶段五当前已经补齐固定 ASGI 入口、外部 embedding provider、批量 embedding 写入、数据库侧 pgvector 排序和通用初始化索引 CLI；这仍不等同于真实项目 MVP 验收完成。真实可用 MVP 还需要用真实脱敏 Java 项目索引库验证召回质量。
+- Java、SQL DDL、Markdown 离线索引器。
+- SQLAlchemy repository、Alembic 迁移、PostgreSQL / pgvector 存储。
+- Hybrid Search：关键词、向量、结构化过滤、有界合并和统一 `SearchResult`。
+- Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
+- MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
+- 固定 ASGI 入口：`agent_context_platform.asgi:app`。
+- 初始化索引 CLI：`acp-index --root <path>`。
+- Embedding provider：DashScope native、OpenAI-compatible、Jina task mode。
+- 多模型 embedding 存储：`item_embeddings` 按 provider、model、dimension 和 task identity 隔离向量空间。
+- Remote MCP HTTP：`ACP_MCP_TRANSPORT=streamable-http`。
+- MCP JSONL 调试日志：默认关闭，可显式写摘要或完整 payload。
 
 ## 文档导航
 
+### 正式文档
+
 | 文档 | 用途 |
 |---|---|
-| [MVP 产品需求](docs/product/mvp-requirements.md) | 说明 MVP 做什么、不做什么、为什么 |
-| [MVP 架构设计](docs/architecture/mvp-design.md) | 说明总体架构、数据流和模块边界 |
-| [Context API 契约](docs/api/context-api.md) | 说明首版公开接口和统一返回模型 |
-| [MVP 实施计划](docs/planning/mvp-implementation-plan.md) | 说明依赖顺序、任务拆分、验收与验证 |
-| [阶段二实际验证记录](docs/planning/phase-2-verification.md) | 记录离线索引器端到端落盘验证结果和未覆盖边界 |
-| [阶段三实际验证记录](docs/planning/phase-3-verification.md) | 记录核心检索流程、接口和真实数据库验证结果 |
-| [阶段四实际验证记录](docs/planning/phase-4-verification.md) | 记录 MCP 接入、固定评测集和回归脚本验证结果 |
-| [阶段五实际验证记录](docs/planning/phase-5-verification.md) | 记录 ASGI 入口、运行配置、embedding provider、批量写入、pgvector 排序和初始化索引 CLI 验证结果 |
-| [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md) | 说明固定评测集、指标和回归流程 |
-| [MVP 固定评测样本](docs/evaluation/mvp-evaluation-samples.json) | 保存阶段四脱敏半真实任务样本 |
-| [ADR-001: Agent Context First MVP Scope](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | 记录 MVP 范围与产品方向决策 |
-| [ADR-002: Hybrid Search With PostgreSQL pgvector](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | 记录检索与存储选型决策 |
-| [ADR-003: Python FastAPI MVP Application Stack](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | 记录 Python 应用栈、解析器、LLM 和 embedding 边界决策 |
-| [ADR-004: Model Scoped Embedding Storage](docs/decisions/ADR-004-model-scoped-embedding-storage.md) | 记录多 embedding model 兼容存储决策 |
+| [正式需求](docs/product/requirements.md) | 当前产品和工程需求入口 |
+| [当前架构设计](docs/architecture/design.md) | 当前 master 代码对应的架构、入口、配置和边界 |
+| [Context API 契约](docs/api/context-api.md) | HTTP API、MCP 参数透传、模型和错误 envelope |
+| [正式测评待办](docs/evaluation/evaluation-todo.md) | 正式测评体系待确认事项 |
+| [ADR-001](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | Agent Context First MVP 范围决策 |
+| [ADR-002](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | Hybrid Search 与 PostgreSQL / pgvector 决策 |
+| [ADR-003](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | Python FastAPI 应用栈决策 |
+| [ADR-004](docs/decisions/ADR-004-model-scoped-embedding-storage.md) | 多模型 embedding 存储决策 |
 
-## 核心目标
+### 阶段记录与历史资料
 
-MVP 的目标不是构建泛知识库，而是构建一个可供 Coding Agent 调用的工程上下文系统。
+| 文档 | 用途 |
+|---|---|
+| [MVP 阶段总结](docs/planning/mvp-stage-summary.md) | 阶段 0 已完成能力、验收结论和转入生产化阶段的边界 |
+| [MVP 阶段归档](docs/archive/mvp/README.md) | 阶段 0 历史需求、设计、计划、验证和样本 |
 
-系统需要支持 Agent：
+ADR 保持历史原貌，不因进入生产化阶段改写。后续如果出现新的高影响架构决策，应新增 ADR。
 
-- 搜索 Java 代码结构和相似实现。
-- 搜索 SQL 表结构和字段定义。
-- 搜索 Markdown 设计文档和开发规范。
-- 聚合任务相关上下文。
-- 返回带来源引用的结果。
+## 核心工作流
 
-## MVP 范围
-
-首个验收工作流固定为 `build-task-context`：
+默认 Agent 工作流是 `build-task-context`：
 
 ```text
 用户提出工程任务
     ↓
 Agent 调用 build-task-context
     ↓
-系统返回相关代码、表结构、设计文档、相似实现和风险提示
+系统返回相关代码、表结构、文档、相似实现和风险提示
     ↓
-Agent 基于引用来源继续设计、修改或 Review
+Agent 基于 source citation 继续设计、修改或 Review
 ```
 
-第一版纳入资产：
-
-- Java 代码：class、method、annotation、signature、file path、line range。
-- SQL 表结构：table、column、DDL、index。
-- Markdown 文档：heading path、正文片段、file path、line range。
-
-## 明确不做
-
-MVP 阶段不做：
-
-- 人工搜索 UI。
-- 泛知识库问答。
-- PPT、PDF、图片或流程图解析。
-- GraphRAG。
-- 实时索引。
-- 权限系统。
-- 多仓库关联。
-
-这些能力可以在 MVP 的核心检索质量被验证后再评估。
-
-## 验收口径
-
-MVP 必须通过固定评测集验证，不以单次演示效果作为完成标准。
-
-基础指标：
-
-- Top5 命中率 >= 70%。
-- Top10 明显无关结果 <= 3 条。
-- 所有返回结果必须包含来源引用。
-
-详细方案见 [MVP 评测计划](docs/evaluation/mvp-evaluation-plan.md)。
+每条返回结果都必须有可追溯来源。上下文不足时，系统应通过 `missing_context` 或 `risks` 暴露缺口，而不是伪造确定结论。
 
 ## 运行依赖
 
 - Python `>= 3.12`
-- [`uv`](https://docs.astral.sh/uv/)：用于安装依赖和执行项目命令
-- PostgreSQL：用于真实数据库验证
-- `pgvector` extension：用于 `item_embeddings.embedding` 字段和后续向量检索能力
+- [`uv`](https://docs.astral.sh/uv/)
+- PostgreSQL
+- `pgvector` extension
 
-当前文档默认使用 Windows / PowerShell。`pyproject.toml` 已声明项目依赖，`uv.lock` 固定了当前锁定版本。
+当前文档默认使用 Windows / PowerShell。`pyproject.toml` 声明项目依赖和脚本入口，`uv.lock` 固定当前锁定版本。
 
 ## 配置说明
 
-仓库提供 [`.env.example`](.env.example) 作为配置样例。应用本身只读取进程环境，不会自动加载 `.env` 文件；本地启动时可以让 Uvicorn 通过 `--env-file .env` 把样例文件加载到进程环境中。
+仓库提供 [`.env.example`](.env.example) 作为配置样例。应用本身只读取进程环境，不会自动加载 `.env` 文件；本地启动时可以让 Uvicorn 通过 `--env-file .env` 把样例文件加载到 Uvicorn 进程环境中。
 
-注意：Alembic 和 `acp-index` 当前不会自动读取 `.env` 文件，只读取当前 PowerShell 进程环境变量。执行迁移或索引前，需要先把 `.env` 加载到当前进程，或者直接设置对应 `$env:*` 变量；`uvicorn --env-file .env` 只对 Uvicorn 启动生效，不会影响 Alembic 或 `acp-index`。
+注意：Alembic 和 `acp-index` 当前不会自动读取 `.env` 文件，只读取当前 PowerShell 进程环境变量。执行迁移或索引前，需要先把 `.env` 加载到当前进程，或者直接设置对应 `$env:*` 变量；`uvicorn --env-file .env` 不会影响 Alembic 或 `acp-index`。
 
 | 变量 | 用途 | 默认行为 |
 |---|---|---|
-| `ACP_DATABASE_URL` | 指定 Alembic 迁移、初始化索引 CLI 和长期运行 Context API 使用的数据库连接 | 固定 ASGI 入口和 `acp-index` 写库时必填 |
-| `ACP_ENV` | 标识运行环境 | 默认 `local` |
-| `ACP_LOG_LEVEL` | 指定应用日志级别 | 默认 `INFO` |
-| `ACP_SQL_ECHO` | 控制 SQLAlchemy 是否输出 SQL 日志 | 默认 `false` |
-| `ACP_CONTEXT_API_BASE_URL` | 指定 MCP server 调用的 Context API 地址 | 默认 `http://127.0.0.1:8000` |
-| `ACP_MCP_TRANSPORT` | 指定 `acp-mcp-server` 的 MCP transport | 默认 `stdio`；remote MCP 只支持 `streamable-http`，不支持 SSE |
-| `ACP_MCP_HOST` | 指定 remote MCP HTTP 监听 host | 默认 `127.0.0.1` |
-| `ACP_MCP_PORT` | 指定 remote MCP HTTP 监听 port | 默认 `8001`，必须是 `1..65535` |
-| `ACP_MCP_PATH` | 指定 remote MCP HTTP endpoint path | 默认 `/mcp`，必须以 `/` 开头 |
-| `ACP_MCP_LOG_FILE` | 指定 `acp-mcp-server` 调试 JSONL 日志文件 | 默认不写 MCP 调试日志；父目录必须已存在 |
-| `ACP_MCP_LOG_PAYLOADS` | 控制 MCP 调试日志是否写完整 tool arguments 和 tool result | 默认 `false`；仅调试或评测复盘时显式改为 `true` |
-| `ACP_EMBEDDING_PROVIDER` | 选择 embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
-| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写，`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数；`acp-index` 只有传入 `--with-embedding` 时才会调用 provider |
-| `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认使用 `retrieval.passage` 写入 item embedding、`retrieval.query` 生成 query embedding，并在请求中启用 `truncate: true` 处理超长输入 |
+| `ACP_DATABASE_URL` | Alembic、`acp-index` 和 Context API 使用的数据库连接 | 固定 ASGI 入口和 `acp-index` 写库时必填 |
+| `ACP_ENV` | 运行环境标识 | 默认 `local` |
+| `ACP_LOG_LEVEL` | 应用日志级别 | 默认 `INFO` |
+| `ACP_SQL_ECHO` | SQLAlchemy SQL 日志开关 | 默认 `false` |
+| `ACP_CONTEXT_API_BASE_URL` | MCP wrapper 调用 Context API 的地址 | 默认 `http://127.0.0.1:8000` |
+| `ACP_MCP_TRANSPORT` | `acp-mcp-server` transport | 默认 `stdio`；remote MCP 只支持 `streamable-http` |
+| `ACP_MCP_HOST` | remote MCP HTTP host | 默认 `127.0.0.1` |
+| `ACP_MCP_PORT` | remote MCP HTTP port | 默认 `8001`，必须是 `1..65535` |
+| `ACP_MCP_PATH` | remote MCP HTTP endpoint path | 默认 `/mcp`，必须以 `/` 开头 |
+| `ACP_MCP_LOG_FILE` | MCP JSONL 调试日志路径 | 默认不写；父目录必须已存在 |
+| `ACP_MCP_LOG_PAYLOADS` | 是否写完整 tool arguments 和 result | 默认 `false` |
+| `ACP_EMBEDDING_PROVIDER` | embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
+| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写；`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数 |
+| `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认 `retrieval.passage` / `retrieval.query` |
 
 ## 快速开始
-
-以下命令默认在 Windows / PowerShell 中执行。
 
 1. 复制配置样例：
 
@@ -154,22 +103,22 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    Copy-Item .env.example .env
    ```
 
-2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，还必须确认 `ACP_EMBEDDING_PROVIDER`、`ACP_EMBEDDING_API_KEY`、`ACP_EMBEDDING_MODEL` 和维度配置匹配当前 provider。
+2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，还必须确认 `ACP_EMBEDDING_*` 与当前 provider 匹配。
 
-3. 在当前 PowerShell 进程中设置本仓库本地依赖缓存：
+3. 设置本仓库本地依赖缓存：
 
    ```powershell
    $env:UV_CACHE_DIR = ".uv-cache"
    $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
    ```
 
-4. 安装项目依赖：
+4. 安装依赖：
 
    ```powershell
    uv sync --extra test
    ```
 
-5. 将 `.env` 中的运行配置加载到当前进程，并执行数据库迁移：
+5. 将 `.env` 加载到当前 PowerShell 进程并执行迁移：
 
    ```powershell
    Get-Content .env | ForEach-Object {
@@ -181,41 +130,39 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    uv run alembic upgrade head
    ```
 
-6. 运行完整测试：
+6. 运行测试：
 
    ```powershell
    uv run --extra test pytest
    ```
 
-7. 初始化工程索引。先用 `dry-run` 确认扫描边界，再写入与 Context API 相同的 `ACP_DATABASE_URL`：
+7. 初始化工程索引。先 dry-run，再写入与 Context API 相同的 `ACP_DATABASE_URL`：
 
    ```powershell
    uv run acp-index --root D:\Code\YourProject --dry-run
    uv run acp-index --root D:\Code\YourProject --repo your-project
    ```
 
-   如果开启新的 PowerShell 终端，需要重新加载 `.env` 或重新设置 `$env:ACP_DATABASE_URL`，否则 `acp-index` 读取不到数据库连接。
-
-   如需同时写入 embedding，必须先补齐 `ACP_EMBEDDING_*`，并显式传入 `--with-embedding`：
+   如需同时写入 embedding，必须补齐 `ACP_EMBEDDING_*` 并显式开启：
 
    ```powershell
    uv run acp-index --root D:\Code\YourProject --repo your-project --with-embedding
    ```
 
-8. 启动长期运行的 Context API：
+8. 启动 Context API：
 
    ```powershell
    uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000 --env-file .env
    ```
 
-9. 另开一个 PowerShell 终端，启动 MCP server wrapper：
+9. 启动 local stdio MCP wrapper：
 
    ```powershell
    $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
    uv run acp-mcp-server
    ```
 
-   默认启动的是 local stdio MCP。Agent 如果需要 remote MCP URL，可以改用 HTTP `streamable-http`：
+   如需 remote MCP HTTP：
 
    ```powershell
    $env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
@@ -226,30 +173,19 @@ MVP 必须通过固定评测集验证，不以单次演示效果作为完成标�
    uv run acp-mcp-server
    ```
 
-   此时 Agent 侧 remote MCP URL 是 `http://127.0.0.1:8001/mcp`。`ACP_CONTEXT_API_BASE_URL` 仍然只是 MCP wrapper 调用 Context API 的地址。
+   Agent 侧 remote MCP URL 是 `http://127.0.0.1:8001/mcp`。`ACP_CONTEXT_API_BASE_URL` 仍然只是 MCP wrapper 调用 Context API 的地址。
 
-   调试或评测时，如果需要复盘 MCP tool 的真实结构化入参、返回摘要、错误和耗时，可以显式开启服务端 JSONL 日志。默认不记录完整 payload；只有设置 `ACP_MCP_LOG_PAYLOADS=true` 时才写入完整 tool arguments 和 tool result：
+## 当前运行边界
 
-   ```powershell
-   New-Item -ItemType Directory -Force logs
-   $env:ACP_MCP_LOG_FILE = "logs/acp-mcp-debug.jsonl"
-   $env:ACP_MCP_LOG_PAYLOADS = "false"
-   uv run acp-mcp-server
-   ```
+固定 ASGI 入口位于 `agent_context_platform.asgi:app`。运行配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段失败。
 
-## 当前启动边界
+MCP server 是 Context API 的包装层。它依赖可访问的 HTTP 服务，不直接访问 repository、SQLAlchemy session 或数据库。
 
-固定 ASGI 入口位于 `agent_context_platform.asgi:app`，可通过 Uvicorn 启动长期运行的 Context API。运行时配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段直接失败，而不是把问题留到请求阶段。
+真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；embedding 写入必须显式传入 `--with-embedding`。
 
-MCP server 仍然只是 Context API 的包装层；它依赖可访问的 HTTP 服务，但不直接访问 repository、SQLAlchemy session 或数据库。当前已完成外部 EmbeddingProvider 调用、批量 embedding 写入、数据库侧 pgvector 相似度排序，以及 remote MCP HTTP `streamable-http` 启动能力。
+MCP JSONL 调试日志默认关闭。开启 `ACP_MCP_LOG_FILE` 后，日志记录 FastMCP 完成 schema 解析后的 tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；它不抓 raw JSON-RPC wire frame。只有 `ACP_MCP_LOG_PAYLOADS=true` 时才写完整 payload。
 
-`acp-mcp-server` 默认保持 local stdio MCP；`ACP_CONTEXT_API_BASE_URL` 是 MCP wrapper 调用 Context API 的地址，不是 Agent 侧 remote MCP URL。remote MCP 使用独立 HTTP endpoint，例如 `http://127.0.0.1:8001/mcp`；当前不支持 SSE。
-
-MCP 调试 JSONL 日志默认关闭。开启 `ACP_MCP_LOG_FILE` 后，日志记录 FastMCP 完成 schema 解析后的 tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；它不抓 raw JSON-RPC wire frame。stdio MCP 下调试内容必须写入文件或 stderr，不能写 stdout，以免破坏 MCP JSON-RPC 消息流。
-
-真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。第一版 P0 支持扫描单个工程目录、复用 `ACP_DATABASE_URL`、`dry-run`、include/exclude、稳定 repo 标识和 JSON 结果摘要；embedding 写入必须显式传入 `--with-embedding`。
-
-当前任务 15 真实项目验证不再把 MySQL dump 兼容作为前置待办；如果后续语料选择包含 jshERP 这类 MySQL dump SQL 文件，需要先重新确认验收范围或转换输入语料。Jina/OpenAI-compatible provider 已完成真实端到端写入与检索验证。切换 provider、model、dimension 或 Jina task pair 时，必须使用匹配的 `item_embeddings` 向量空间，不能混用不同向量空间。
+切换 provider、model、dimension 或 Jina task pair 时，必须使用匹配的 `item_embeddings` 向量空间，不能混用不同向量空间。
 
 ## 本地验证
 
@@ -261,11 +197,9 @@ $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 uv run --extra test pytest
 ```
 
-当前任务 14 后验证结果：
+### 阶段 0 归档样本回归
 
-- `uv run --extra test pytest`：`78 passed`
-
-### 固定评测集回归
+该脚本用于保留阶段 0 的历史回归能力，不是正式测评文档：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
@@ -273,23 +207,7 @@ $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 uv run --extra test python scripts/run_mvp_evaluation.py
 ```
 
-当前结果：
-
-- `sample_count=10`
-- `passed=true`
-- `top5_hit_rate=1.0`
-- `top10_irrelevant_result_count=0`
-- `source_citation_completeness=1.0`
-
-### 固定 ASGI 入口验证
-
-```powershell
-$env:UV_CACHE_DIR = ".uv-cache"
-$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run uvicorn agent_context_platform.asgi:app --host 127.0.0.1 --port 8000 --env-file .env
-```
-
-服务启动后，可以用任意 HTTP client 调用 `/search-code`、`/search-db-schema`、`/search-doc` 和 `/build-task-context`。固定 ASGI 入口的真实 PostgreSQL / pgvector 冒烟验证记录见 [阶段五实际验证记录](docs/planning/phase-5-verification.md)。
+默认样本路径为 `docs/archive/mvp/evaluation/mvp-evaluation-samples.json`。
 
 ### MCP 包装层验证
 
@@ -299,109 +217,30 @@ $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 uv run --extra test pytest tests/test_mcp_server.py
 ```
 
-当前结果：
+### pgvector 排序验证
 
-- `uv run --extra test pytest tests/test_mcp_server.py`：`21 passed`
-
-### Remote MCP HTTP 验证
-
-启动 remote MCP 前，需要先启动 Context API。remote MCP 默认 URL 为 `http://127.0.0.1:8001/mcp`：
+该验证不依赖外部 embedding provider：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-$env:ACP_CONTEXT_API_BASE_URL = "http://127.0.0.1:8000"
-$env:ACP_MCP_TRANSPORT = "streamable-http"
-$env:ACP_MCP_HOST = "127.0.0.1"
-$env:ACP_MCP_PORT = "8001"
-$env:ACP_MCP_PATH = "/mcp"
-uv run acp-mcp-server
-```
-
-可使用 MCP streamable HTTP client 验证 `list_tools` 和 `build_task_context`；`ACP_MCP_TRANSPORT=sse` 会在启动配置解析阶段失败。
-
-如需同时验证 MCP JSONL 日志，先创建日志目录并设置 `ACP_MCP_LOG_FILE`。`ACP_MCP_LOG_PAYLOADS=false` 时日志只包含摘要；设置为 `true` 时会写完整请求和返回，可能包含 task、query、source content 或 metadata。
-
-### 本地 PostgreSQL / pgvector 启动
-
-当前开发机已验证过一套隔离 PostgreSQL / pgvector 环境，工具链位于 `D:\Code\ACPTools`。如果使用这套本地环境：
-
-```powershell
-$toolRoot = "D:\Code\ACPTools"
-$env:PIXI_HOME = Join-Path $toolRoot "pixi-home"
-$env:PIXI_CACHE_DIR = Join-Path $toolRoot "pixi-cache"
-$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
-
-& "$toolRoot\pixi.exe" run --manifest-path "$toolRoot\pg-pixi\pixi.toml" pg_ctl -D "$toolRoot\pg-data" -l "$toolRoot\postgres.log" -o "-p 55432" start
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_mvp_pgvector"
 uv run alembic upgrade head
+uv run --extra test python scripts/verify_mvp_pgvector_search.py
 ```
 
-验证完成后停止本地数据库：
+### embedding 写入验证
 
-```powershell
-& "$toolRoot\pg-pixi\.pixi\envs\default\Library\bin\pg_ctl.exe" -D "$toolRoot\pg-data" stop
-```
-
-### 任务 12 embedding 写入验证
-
-`.env` 必须包含完整 `ACP_EMBEDDING_*` 配置。该验证会真实调用当前配置的 embedding provider，并将 Java、SQL、Markdown 三类样本 embedding 写入数据库。当前已执行过 DashScope provider 真实调用，也已使用 Jina 作为 OpenAI-compatible provider 完成端到端写库与检索验证：
+该验证会真实调用当前配置的 embedding provider：
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
+uv run --extra test python scripts/verify_mvp_embeddings.py --env-file .env
 ```
 
-当前已验证输出摘要：
+## 后续待办
 
-- DashScope：`provider=dashscope`、`model=tongyi-embedding-vision-flash-2026-03-06`、`dimension=768`
-- Jina / OpenAI-compatible：`provider=jina:retrieval.passage>retrieval.query`、`model=jina-embeddings-v3`、`dimension=1024`
-- `saved_count=3`
-- `embedding_counts=code:1,db_schema:1,doc:1`
-- query embedding 检索返回非零 vector score
-
-### 任务 14 初始化索引 CLI 验证
-
-`acp-index` 会输出 JSON 摘要，包含 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`elapsed_seconds` 和 `failures`。
-
-如果 embedding provider 返回错误，`acp-index` 会把错误写入 `failures`，其中 `stage` 为 `embedding`，并回滚本次写入事务。
-
-```powershell
-$env:UV_CACHE_DIR = ".uv-cache"
-$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run acp-index --root . --dry-run
-```
-
-写库时必须设置 `ACP_DATABASE_URL`，该数据库应与 Context API 启动时读取的数据库一致：
-
-```powershell
-$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform"
-uv run alembic upgrade head
-uv run acp-index --root D:\Code\YourProject --repo your-project
-```
-
-常用过滤参数：
-
-```powershell
-uv run acp-index --root D:\Code\YourProject --include "**/*.java" --exclude "target/**" --dry-run
-```
-
-### 任务 13 pgvector 排序验证
-
-该验证不依赖外部 embedding provider。脚本会写入确定性样本，调用 repository 的 PostgreSQL / pgvector 查询，并断言 SQL 实际使用 `<=>` 和 `LIMIT`：
-
-```powershell
-$env:UV_CACHE_DIR = ".uv-cache"
-$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_task13"
-uv run alembic upgrade head
-uv run --extra test python scripts/verify_task13_pgvector_search.py
-```
-
-当前已验证输出：
-
-- `task13 pgvector search verification passed`
-- `top_result=task13:code:vector-top`
-- `vector_score=1.0`
-- `operator=<=>`
-- `limit_applied=true`
+- 阶段 1：生产化建设计划待确认。
+- 正式测评体系待确认，见 [正式测评待办](docs/evaluation/evaluation-todo.md)。
+- 公开部署 remote MCP 前需单独确认 HTTPS、认证和反向代理边界。

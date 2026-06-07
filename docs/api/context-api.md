@@ -2,13 +2,13 @@
 
 ## 设计目标
 
-Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用同一组 API，避免不同入口产生行为差异。
+Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕同一组接口和模型组织，避免不同入口产生行为差异。
 
-首版 API 面向 Agent Tool Calling，不面向泛问答。
+当前 API 面向 Coding Agent 的工程上下文检索，不面向泛问答。
 
 ## 公共模型
 
-以下模型是文档级契约，不绑定具体编程语言。后续实现应保持字段语义稳定。
+以下模型是文档级契约，对应 `src/agent_context_platform/models.py`。
 
 ### IndexedItem
 
@@ -16,13 +16,15 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 
 | 字段 | 说明 |
 |---|---|
-| `id` | 索引项唯一 ID |
+| `id` | 稳定可重建的索引项唯一 ID |
 | `asset_type` | `code`、`db_schema`、`doc` |
-| `title` | 面向结果展示的标题，例如 class 名、表名、文档标题 |
-| `content` | 可检索正文或摘要 |
+| `title` | 面向结果展示的标题 |
+| `content` | 参与检索和 embedding 的主体文本 |
 | `summary` | 面向 Agent 的短摘要 |
-| `metadata` | 结构化元数据，例如 language、symbol_type、table_name |
+| `metadata` | 结构化元数据，例如 `language`、`symbol_type`、`table` |
 | `source` | `SourceCitation` |
+
+约束：`asset_type` 必须与 `source.source_type` 一致。
 
 ### SourceCitation
 
@@ -31,10 +33,10 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 | 字段 | 说明 |
 |---|---|
 | `source_type` | `code`、`db_schema`、`doc` |
-| `repo` | 来源仓库标识；单仓 MVP 可以为空或固定 |
+| `repo` | 来源仓库或语料标识 |
 | `path` | 来源文件路径 |
-| `start_line` | 起始行号；无法定位时为空 |
-| `end_line` | 结束行号；无法定位时为空 |
+| `start_line` | 起始行号 |
+| `end_line` | 结束行号 |
 | `symbol` | 代码符号，例如 class 或 method |
 | `table` | 表名 |
 | `column` | 字段名 |
@@ -42,10 +44,10 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 
 约束：
 
-- 代码结果必须包含 `path` 和行号。
-- SQL 表级结果必须包含 `table`。
-- SQL 字段级结果必须包含 `table` 和 `column`。
-- Markdown 结果必须包含 `path` 和 `heading_path`。
+- code 来源必须包含 `path`、`start_line`、`end_line`。
+- db_schema 来源必须包含 `table`。
+- doc 来源必须包含 `path`、`heading_path`、`start_line`、`end_line`。
+- `end_line` 不能小于 `start_line`。
 
 ### SearchResult
 
@@ -55,9 +57,11 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 |---|---|
 | `item` | `IndexedItem` |
 | `score` | 统一排序分数 |
-| `score_parts` | 可选，关键词、向量、过滤加权等分数来源 |
+| `score_parts` | 可选，关键词、向量等分数来源 |
 | `match_reason` | 命中原因，便于 Agent 判断可用性 |
 | `source` | `SourceCitation` |
+
+约束：顶层 `source` 必须与 `item.source` 一致。
 
 ### TaskContext
 
@@ -70,17 +74,27 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 | `related_db_schema` | 相关表结构结果 |
 | `related_docs` | 相关文档结果 |
 | `similar_implementations` | 推荐参考实现 |
-| `risks` | 风险提示，例如缺少表结构或文档过期风险 |
+| `risks` | 风险提示 |
 | `missing_context` | 明确缺失的上下文类型 |
 | `citations` | 本次上下文包使用到的来源引用汇总 |
 
-## API 列表
+约束：`citations` 必须覆盖所有返回结果的来源。
 
-### search-code
+## Search API
 
-搜索 Java 代码结构和相似实现。
+### `POST /search-code`
 
-请求：
+搜索已索引的 Java code。
+
+### `POST /search-db-schema`
+
+搜索已索引的 SQL schema。
+
+### `POST /search-doc`
+
+搜索已索引的 Markdown docs。
+
+三个 endpoint 共用请求体：
 
 ```json
 {
@@ -89,10 +103,26 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
   "filters": {
     "language": "java",
     "symbol_type": ["class", "method"],
-    "path_prefix": "src/main/java"
-  }
+    "path_prefix": "src/main/java",
+    "table": null
+  },
+  "query_embedding": null,
+  "request_id": "req-001"
 }
 ```
+
+字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `query` | 必填，非空自然语言问题或关键词 |
+| `limit` | 可选，默认 `10`，范围 `1..50` |
+| `filters.language` | 可选，主要用于代码资产 |
+| `filters.symbol_type` | 可选，可为字符串或字符串数组 |
+| `filters.path_prefix` | 可选，限制仓库子目录 |
+| `filters.table` | 可选，用于 DB schema 搜索 |
+| `query_embedding` | 可选，用于显式传入 query embedding |
+| `request_id` | 可选，用于贯穿日志和调试链路 |
 
 响应：
 
@@ -112,6 +142,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
         },
         "source": {
           "source_type": "code",
+          "repo": "example",
           "path": "src/main/java/example/PaymentMessageBuilder.java",
           "start_line": 32,
           "end_line": 88,
@@ -119,51 +150,29 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
         }
       },
       "score": 0.82,
-      "match_reason": "方法名和正文同时命中 payment/message/build"
+      "score_parts": {
+        "keyword": 0.7,
+        "vector": 0.12
+      },
+      "match_reason": "方法名和正文同时命中 payment/message/build",
+      "source": {
+        "source_type": "code",
+        "repo": "example",
+        "path": "src/main/java/example/PaymentMessageBuilder.java",
+        "start_line": 32,
+        "end_line": 88,
+        "symbol": "PaymentMessageBuilder.build"
+      }
     }
   ]
 }
 ```
 
-### search-db-schema
+## Build Task Context API
 
-搜索 SQL 表结构。
+### `POST /build-task-context`
 
-请求：
-
-```json
-{
-  "query": "payment order status",
-  "limit": 10,
-  "filters": {
-    "table": null
-  }
-}
-```
-
-响应必须返回表级或字段级来源引用。
-
-### search-doc
-
-搜索 Markdown 文档。
-
-请求：
-
-```json
-{
-  "query": "payment integration design",
-  "limit": 10,
-  "filters": {
-    "path_prefix": "docs"
-  }
-}
-```
-
-响应必须返回 `path`、`heading_path` 和可定位行号。
-
-### build-task-context
-
-构建任务上下文包，是 MVP 首个验收工作流。
+构建任务上下文包，是 Agent 默认优先入口。
 
 请求：
 
@@ -177,11 +186,20 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
     "similar_implementations": 5
   },
   "constraints": {
-    "language": "java",
-    "include_tests": true
-  }
+    "language": "java"
+  },
+  "request_id": "req-002"
 }
 ```
+
+字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `task` | 必填，非空任务描述 |
+| `limits` | 可选，按上下文类型控制返回数量 |
+| `constraints` | 可选，当前主要用于 `language` 等跨检索约束 |
+| `request_id` | 可选，用于日志追踪 |
 
 响应：
 
@@ -196,7 +214,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
     "未召回到明确的错误码映射文档，需要人工确认。"
   ],
   "missing_context": [
-    "error-code-doc"
+    "db_schema"
   ],
   "citations": []
 }
@@ -210,33 +228,67 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 
 ## 错误处理
 
-首版 API 至少区分：
+错误响应使用统一 envelope：
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "请求参数格式错误。",
+    "details": []
+  }
+}
+```
+
+当前错误码：
 
 | 错误 | 触发条件 |
 |---|---|
-| `invalid_request` | 缺少 `query`、`task` 或参数格式错误 |
-| `index_not_ready` | 索引尚未构建或不可用 |
-| `embedding_unavailable` | embedding provider 不可用 |
-| `storage_unavailable` | PostgreSQL 或 pgvector 查询失败 |
+| `invalid_request` | 缺少必填字段、参数格式错误或业务参数不合法 |
+| `embedding_unavailable` | embedding provider、query embedding 或维度校验失败 |
+| `storage_unavailable` | PostgreSQL、pgvector 或 SQLAlchemy 查询失败 |
 
-错误响应必须包含：
+API 当前对上述错误返回 HTTP `400`。调用方应优先读取 `error.code` 和 `error.message`。
 
-- 错误码。
-- 面向运维定位的 message。
-- 可选 request id。
+## MCP Tool 映射
 
-## 日志要求
+`acp-mcp-server` 暴露四个 tool：
+
+| MCP tool | Context API |
+|---|---|
+| `search_code` | `POST /search-code` |
+| `search_db_schema` | `POST /search-db-schema` |
+| `search_doc` | `POST /search-doc` |
+| `build_task_context` | `POST /build-task-context` |
+
+MCP wrapper 会透传 search 请求中的 `query`、`limit`、`filters`、`query_embedding`、`request_id`，以及 build 请求中的 `task`、`limits`、`constraints`、`request_id`。
+
+MCP wrapper 只调用 Context API，不直接访问 repository、SQLAlchemy session 或数据库。
+
+## 日志与调试
 
 Context API 每次查询应记录：
 
-- request id。
-- API name。
-- 查询文本长度，不记录敏感全文日志作为默认行为。
-- filters。
-- 各资产类型返回数量。
-- 查询耗时。
-- 错误码。
+- `request_id`
+- API name
+- 返回数量
+- 查询耗时
+- 错误码
 
-日志必须便于排查召回为空、结果无关、向量服务失败、数据库失败等问题。
+默认日志不应记录敏感 task/query 全文。
 
-MCP wrapper 额外提供可选服务端 JSONL 调试日志，用于调试和固定评测复盘。该日志记录 FastMCP 完成 schema 解析后的 MCP tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；默认不记录完整请求或完整返回正文。只有显式开启 `ACP_MCP_LOG_PAYLOADS=true` 时，才写入完整 tool arguments 和 tool result payload。P0 不抓 raw JSON-RPC wire frame，也不依赖 MCP logging notification。
+MCP wrapper 可选写 JSONL 调试日志。开启 `ACP_MCP_LOG_FILE` 后，每次 tool 调用记录：
+
+- `schema_version`
+- `timestamp`
+- `event=mcp_tool_call`
+- `mcp_call_id`
+- `tool`
+- `request_id`
+- `status`
+- `elapsed_ms`
+- `summary`
+
+默认只写摘要。只有显式设置 `ACP_MCP_LOG_PAYLOADS=true` 时，才写完整 tool arguments 和 tool result payload。
+
+P0 不抓 raw JSON-RPC wire frame，也不依赖 MCP logging notification。stdio MCP 下调试内容必须写入文件或 stderr，不能写 stdout。

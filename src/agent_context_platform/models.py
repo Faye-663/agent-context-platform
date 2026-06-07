@@ -31,7 +31,7 @@ class SourceCitation(BaseModel):
 
     # source_type 决定下面哪些定位字段是必填的。
     source_type: SourceType
-    # repo 用于区分不同代码库或样本集，例如 "phase2-e2e"。
+    # repo 用于区分不同代码库或样本集，例如 "mvp-indexing"。
     repo: str | None = None
     # path 是仓库内相对路径，例如 "src/main/java/example/PaymentService.java"。
     path: str | None = None

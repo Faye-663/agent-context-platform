@@ -19,21 +19,21 @@ from agent_context_platform.storage import (
 
 
 ITEM_IDS = [
-    "task13:code:vector-top",
-    "task13:code:vector-second",
-    "task13:code:filtered-python",
-    "task13:db_schema:filtered-table",
+    "mvp-pgvector:code:vector-top",
+    "mvp-pgvector:code:vector-second",
+    "mvp-pgvector:code:filtered-python",
+    "mvp-pgvector:db_schema:filtered-table",
 ]
 
 
 def main() -> None:
-    # 任务 13 必须连接 PostgreSQL/pgvector，用来确认排序已下推到数据库侧 <=> 算子。
+    # MVP pgvector 验证必须连接 PostgreSQL/pgvector，用来确认排序已下推到数据库侧 <=> 算子。
     args = _parse_args()
     _load_env_file(args.env_file)
     settings = load_runtime_settings()
     engine = make_engine(settings.database_url, echo=settings.sql_echo)
     if engine.dialect.name != "postgresql":
-        raise SystemExit("任务 13 验证必须连接 PostgreSQL / pgvector 数据库。")
+        raise SystemExit("MVP pgvector 验证必须连接 PostgreSQL / pgvector 数据库。")
 
     captured_sql: list[str] = []
 
@@ -44,17 +44,17 @@ def main() -> None:
         # 捕获 SQL 是为了验证真实执行了 pgvector cosine distance，而不只是结果碰巧正确。
         captured_sql.append(statement)
 
-    identity = EmbeddingIdentity(provider="task13", model="deterministic", dimension=3)
+    identity = EmbeddingIdentity(provider="mvp-pgvector", model="deterministic", dimension=3)
     with Session(engine) as session:
-        _clear_task13_rows(session)
+        _clear_mvp_pgvector_rows(session)
         repository = IndexedItemRepository(session)
         repository.save(
-            _code_item("task13:code:vector-top", "VectorTop.java"),
+            _code_item("mvp-pgvector:code:vector-top", "VectorTop.java"),
             embedding=[0.0, 1.0, 0.0],
             embedding_identity=identity,
         )
         repository.save(
-            _code_item("task13:code:vector-second", "VectorSecond.java"),
+            _code_item("mvp-pgvector:code:vector-second", "VectorSecond.java"),
             embedding=[1.0, 0.0, 0.0],
             embedding_identity=identity,
         )
@@ -78,11 +78,11 @@ def main() -> None:
             symbol_types=["method"],
             limit=1,
         )
-        _clear_task13_rows(session)
+        _clear_mvp_pgvector_rows(session)
         session.commit()
 
     if [(item.id, score) for item, score in results] != [
-        ("task13:code:vector-top", 1.0)
+        ("mvp-pgvector:code:vector-top", 1.0)
     ]:
         raise AssertionError(f"unexpected pgvector search results: {results!r}")
 
@@ -92,8 +92,8 @@ def main() -> None:
     if "LIMIT" not in search_sql.upper():
         raise AssertionError("pgvector search SQL did not include LIMIT")
 
-    print("task13 pgvector search verification passed")
-    print("top_result=task13:code:vector-top")
+    print("MVP pgvector search verification passed")
+    print("top_result=mvp-pgvector:code:vector-top")
     print("vector_score=1.0")
     print("operator=<=>")
     print("limit_applied=true")
@@ -101,7 +101,7 @@ def main() -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify task 13 PostgreSQL / pgvector similarity search."
+        description="Verify MVP PostgreSQL / pgvector similarity search."
     )
     parser.add_argument(
         "--env-file",
@@ -123,7 +123,7 @@ def _load_env_file(path: Path | None) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"'))
 
 
-def _clear_task13_rows(session: Session) -> None:
+def _clear_mvp_pgvector_rows(session: Session) -> None:
     session.execute(
         delete(ItemEmbeddingRecord).where(ItemEmbeddingRecord.item_id.in_(ITEM_IDS))
     )
@@ -139,7 +139,7 @@ def _code_item(item_id: str, filename: str) -> IndexedItem:
         id=item_id,
         asset_type=AssetType.CODE,
         title=symbol,
-        content="task13 java pgvector similarity verification",
+        content="mvp pgvector java similarity verification",
         summary=f"{symbol} deterministic vector search sample.",
         metadata={"language": "java", "symbol_type": "method"},
         source=SourceCitation(
@@ -154,10 +154,10 @@ def _code_item(item_id: str, filename: str) -> IndexedItem:
 
 def _python_item() -> IndexedItem:
     return IndexedItem(
-        id="task13:code:filtered-python",
+        id="mvp-pgvector:code:filtered-python",
         asset_type=AssetType.CODE,
         title="FilteredPython.build",
-        content="task13 filtered python sample",
+        content="mvp pgvector filtered python sample",
         summary="Python item should be filtered by language.",
         metadata={"language": "python", "symbol_type": "function"},
         source=SourceCitation(
@@ -172,15 +172,15 @@ def _python_item() -> IndexedItem:
 
 def _schema_item() -> IndexedItem:
     return IndexedItem(
-        id="task13:db_schema:filtered-table",
+        id="mvp-pgvector:db_schema:filtered-table",
         asset_type=AssetType.DB_SCHEMA,
-        title="task13_filtered_table",
-        content="task13 filtered schema sample",
+        title="mvp_pgvector_filtered_table",
+        content="mvp pgvector filtered schema sample",
         summary="Schema item should be filtered by asset type.",
-        metadata={"symbol_type": "table", "table": "task13_filtered_table"},
+        metadata={"symbol_type": "table", "table": "mvp_pgvector_filtered_table"},
         source=SourceCitation(
             source_type=SourceType.DB_SCHEMA,
-            table="task13_filtered_table",
+            table="mvp_pgvector_filtered_table",
         ),
     )
 

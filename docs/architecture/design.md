@@ -1,0 +1,155 @@
+# agent-context-platform 当前架构设计
+
+## 架构目标
+
+系统目标是让 Coding Agent 在执行工程任务前，可以按需获取可信、相关、可引用的工程上下文。当前架构以 Context API 为稳定内核，MCP 和 CLI 是围绕该内核的接入与初始化入口。
+
+## 总体结构
+
+```text
+Coding Agent
+    |
+    | HTTP API / MCP Tool
+    v
+Context API Server
+    |
+    v
+HybridSearchService + TaskContextBuilder
+    |
+    v
+IndexedItemRepository
+    |
+    v
+PostgreSQL + pgvector
+
+Index CLI
+    |
+    v
+Java / SQL / Markdown Indexers
+    |
+    v
+IndexedItemRepository + optional EmbeddingProvider
+```
+
+## 入口
+
+| 入口 | 代码位置 | 职责 |
+|---|---|---|
+| Context API | `agent_context_platform.asgi:app` / `api.py` | 暴露 HTTP 检索和任务上下文接口 |
+| Runtime 装配 | `runtime.py` | 从 `ACP_*` 环境变量装配 engine、session、repository、embedding provider 和 FastAPI app |
+| MCP server | `mcp_server.py` / `acp-mcp-server` | 暴露 Agent Tool，调用 Context API |
+| Index CLI | `index_cli.py` / `acp-index` | 扫描工程目录、解析资产、写入索引和可选 embedding |
+
+## Context API
+
+`api.py` 提供四个 HTTP endpoint：
+
+- `POST /search-code`
+- `POST /search-db-schema`
+- `POST /search-doc`
+- `POST /build-task-context`
+
+三个 search endpoint 共享 `SearchRequest`：
+
+- `query`：必填，非空。
+- `limit`：默认 `10`，范围 `1..50`。
+- `filters`：支持 `language`、`symbol_type`、`path_prefix`、`table`。
+- `query_embedding`：可选；用于调用方显式提供 query embedding。
+- `request_id`：可选；不传时 API 自动生成。
+
+`build-task-context` 使用 `BuildTaskContextRequest`：
+
+- `task`：必填，非空。
+- `limits`：按资产类型控制返回数量。
+- `constraints`：当前主要用于 `language` 等跨检索约束。
+- `request_id`：可选。
+
+API 层只负责请求校验、错误 envelope 和日志包装，检索由 `HybridSearchService` 执行，上下文聚合由 `TaskContextBuilder` 执行。
+
+## 数据模型
+
+核心模型定义在 `models.py`：
+
+- `IndexedItem` 表示可检索工程资产。
+- `SourceCitation` 表示来源坐标。
+- `SearchResult` 表示一次检索命中。
+- `TaskContext` 表示给 Agent 的任务上下文包。
+
+模型强制约束：
+
+- `asset_type` 必须与 `source.source_type` 一致。
+- code/doc 来源必须包含 path 和行号。
+- db_schema 来源必须包含 table。
+- `SearchResult.source` 必须与 `item.source` 一致。
+- `TaskContext.citations` 必须覆盖所有返回结果来源。
+
+## 检索与存储
+
+`HybridSearchService` 组合关键词、向量和结构化过滤。provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 执行 query embedding 相似度排序；SQLite 路径保留为单元测试和轻量验证替代实现。
+
+`IndexedItemRepository` 保存：
+
+- `indexed_items`：工程资产、结构化 metadata 和来源字段。
+- `item_embeddings`：按 provider、model、dimension 和 task identity 保存 embedding。
+
+查询和写入必须使用匹配的 embedding identity，避免不同向量空间混用。
+
+## 索引流程
+
+`acp-index` 是真实项目入库入口。它负责：
+
+- 递归扫描 `--root`。
+- 应用 include/exclude。
+- 使用根目录名或 `--repo` 生成 repo 标识。
+- 调用 Java、SQL、Markdown indexer。
+- 在 `--dry-run` 时只输出扫描和预计索引摘要。
+- 在非 `dry-run` 时复用 `ACP_DATABASE_URL` 写库。
+- 仅在 `--with-embedding` 时调用外部 provider 并写入 embedding。
+
+CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`elapsed_seconds` 和 `failures`。
+
+## MCP 接入
+
+`acp-mcp-server` 默认使用 local stdio MCP。remote MCP 通过以下配置启用：
+
+- `ACP_MCP_TRANSPORT=streamable-http`
+- `ACP_MCP_HOST`
+- `ACP_MCP_PORT`
+- `ACP_MCP_PATH`
+
+MCP wrapper 只通过 `ContextApiToolClient` 调用 Context API，不直连 repository、SQLAlchemy session 或数据库。`ACP_CONTEXT_API_BASE_URL` 是 wrapper 调用 Context API 的地址；Agent 侧 remote MCP URL 是 MCP server 暴露的独立 endpoint。
+
+## 配置边界
+
+运行配置由 `runtime.py` 和 `mcp_server.py` 从进程环境变量读取。应用不会自动加载 `.env`；`uvicorn --env-file .env` 只影响 Uvicorn 进程，不影响 Alembic 或 `acp-index`。
+
+关键配置：
+
+- `ACP_DATABASE_URL`
+- `ACP_ENV`
+- `ACP_LOG_LEVEL`
+- `ACP_SQL_ECHO`
+- `ACP_CONTEXT_API_BASE_URL`
+- `ACP_MCP_TRANSPORT`
+- `ACP_MCP_HOST`
+- `ACP_MCP_PORT`
+- `ACP_MCP_PATH`
+- `ACP_MCP_LOG_FILE`
+- `ACP_MCP_LOG_PAYLOADS`
+- `ACP_EMBEDDING_PROVIDER`
+- `ACP_EMBEDDING_BASE_URL`
+- `ACP_EMBEDDING_API_KEY`
+- `ACP_EMBEDDING_MODEL`
+- `ACP_EMBEDDING_DIMENSION`
+- `ACP_EMBEDDING_BATCH_SIZE`
+- `ACP_EMBEDDING_DOCUMENT_TASK`
+- `ACP_EMBEDDING_QUERY_TASK`
+
+## 当前限制
+
+- 不提供实时索引或 HTTP ingest。
+- 不提供权限系统。
+- 不支持 SSE MCP transport。
+- 不解析 PPT、PDF、图片或流程图。
+- 不实现 GraphRAG 或完整调用链图谱。
+- 正式测评体系仍待设计，阶段 0 评测材料只作为历史参考。

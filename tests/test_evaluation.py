@@ -10,7 +10,7 @@ from agent_context_platform.evaluation import (
 def test_evaluation_calculates_top5_hit_and_source_completeness() -> None:
     samples = [
         EvaluationSample(
-            id="task-001",
+            id="mvp-sample-001",
             task="新增支付接口",
             expected_hits=[
                 ExpectedHit(
@@ -23,7 +23,7 @@ def test_evaluation_calculates_top5_hit_and_source_completeness() -> None:
             irrelevant_rules=["账户查询实现不属于支付报文生成链路。"],
         ),
         EvaluationSample(
-            id="task-002",
+            id="mvp-sample-002",
             task="补退款状态表字段",
             expected_hits=[ExpectedHit(source_type="db_schema", table="refund_order")],
             irrelevant_result_ids=[],
@@ -31,7 +31,7 @@ def test_evaluation_calculates_top5_hit_and_source_completeness() -> None:
         ),
     ]
     payloads = {
-        "task-001": {
+        "mvp-sample-001": {
             "related_code": [
                 _result(
                     "code:AccountQueryService.query",
@@ -58,7 +58,7 @@ def test_evaluation_calculates_top5_hit_and_source_completeness() -> None:
             "related_docs": [],
             "similar_implementations": [],
         },
-        "task-002": {
+        "mvp-sample-002": {
             "related_code": [],
             "related_db_schema": [
                 _result(
@@ -84,7 +84,7 @@ def test_evaluation_calculates_top5_hit_and_source_completeness() -> None:
 def test_evaluation_reports_failed_samples_and_missing_sources() -> None:
     samples = [
         EvaluationSample(
-            id="task-001",
+            id="mvp-sample-001",
             task="新增支付接口",
             expected_hits=[
                 ExpectedHit(
@@ -98,7 +98,7 @@ def test_evaluation_reports_failed_samples_and_missing_sources() -> None:
         )
     ]
     payloads = {
-        "task-001": {
+        "mvp-sample-001": {
             "related_code": [_result("code:Unknown", None)],
             "related_db_schema": [],
             "related_docs": [],
