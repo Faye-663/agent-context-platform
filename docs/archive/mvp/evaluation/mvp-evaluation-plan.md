@@ -128,7 +128,7 @@ MVP 目标：
 
 每次检索策略、索引器、Context Builder 变更后运行评测。
 
-阶段四已落地的固定评测样本保存在 `docs/evaluation/mvp-evaluation-samples.json`，回归脚本为 `scripts/run_mvp_evaluation.py`。
+阶段四已落地的固定评测样本已归档到 `docs/archive/mvp/evaluation/mvp-evaluation-samples.json`，回归脚本为 `scripts/run_mvp_evaluation.py`。
 
 流程：
 

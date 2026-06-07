@@ -28,7 +28,7 @@
 
 **验收标准：**
 
-- [x] 模型字段与 [Context API 契约](../api/context-api.md) 对齐。
+- [x] 模型字段与 [Context API 契约](../../../api/context-api.md) 对齐。
 - [x] 代码、SQL、Markdown 三类来源都能用 `SourceCitation` 表示。
 - [x] 缺失来源引用的结果无法通过模型校验。
 
@@ -160,7 +160,7 @@
 
 **验收标准：**
 
-- [x] 三个接口的响应结构与 [Context API 契约](../api/context-api.md) 对齐。
+- [x] 三个接口的响应结构与 [Context API 契约](../../../api/context-api.md) 对齐。
 - [x] 每个结果都有 `SourceCitation`。
 - [x] 参数错误返回明确错误码。
 

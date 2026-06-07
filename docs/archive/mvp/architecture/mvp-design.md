@@ -43,7 +43,7 @@ Offline Indexers
 
 ## 技术栈
 
-MVP 技术栈以 Python glue code 为主，优先降低本地开发、离线索引、评测和 Agent 接入的集成成本。应用栈选择见 [ADR-003](../decisions/ADR-003-python-fastapi-mvp-application-stack.md)。
+MVP 技术栈以 Python glue code 为主，优先降低本地开发、离线索引、评测和 Agent 接入的集成成本。应用栈选择见 [ADR-003](../../../decisions/ADR-003-python-fastapi-mvp-application-stack.md)。
 
 | 层级 | 技术 | 说明 |
 |---|---|---|
