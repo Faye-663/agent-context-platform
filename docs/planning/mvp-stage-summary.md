@@ -4,7 +4,7 @@
 
 agent-context-platform 的 MVP 阶段已经完成验收。该阶段目标是验证 Coding Agent 可以通过稳定接口获取可信、相关、可引用的工程上下文，并证明核心链路可以从离线索引、混合检索、Context API、MCP 接入运行到固定评测回归。
 
-MVP 文档已归档到 [MVP 阶段归档](../archive/mvp/README.md)。这些资料保留历史背景和验证证据，不再作为正式 Pro 开发阶段的当前需求或架构入口。
+MVP 文档已归档到 [MVP 阶段归档](../archive/mvp/README.md)。这些资料保留历史背景和验证证据，不再作为生产化阶段的当前需求或架构入口。
 
 ## 已完成能力
 
@@ -22,14 +22,14 @@ MVP 文档已归档到 [MVP 阶段归档](../archive/mvp/README.md)。这些资�
 
 ## 验收结论
 
-MVP 验收结论采用当前正式文档口径：MVP 已完成，项目进入正式 Pro 开发阶段。
+MVP 验收结论采用当前正式文档口径：阶段 0：MVP 开发与验收已完成；项目进入阶段 1：生产化建设准备，具体计划待定。
 
 归档验证记录中保留了各阶段的测试、脚本和人工验证证据，包括全量单元测试、固定评测集回归、PostgreSQL / pgvector 验证、DashScope/Jina embedding 验证、初始化索引 CLI 验证和 remote MCP HTTP 验证。正式阶段后续测评体系需要重新设计，不直接把 MVP 评测计划扩展为正式测评文档。
 
-## 转入 Pro 阶段的边界
+## 转入生产化阶段的边界
 
 - 正式需求入口改为 [正式需求](../product/requirements.md)。
 - 当前架构入口改为 [当前架构设计](../architecture/design.md)。
-- 正式开发计划待定；本次归档不定义 Pro 阶段路线图。
+- 阶段 1：生产化建设计划待定；本次归档不定义后续路线图。
 - 正式测评体系待优化，当前只记录 [正式测评待办](../evaluation/evaluation-todo.md)。
 - ADR 保持不变；新增长期架构决策时再创建新的 ADR。

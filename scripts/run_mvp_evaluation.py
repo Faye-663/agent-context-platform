@@ -21,7 +21,9 @@ from agent_context_platform.storage import Base, IndexedItemRepository
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SAMPLES_PATH = ROOT / "docs" / "evaluation" / "mvp-evaluation-samples.json"
+DEFAULT_SAMPLES_PATH = (
+    ROOT / "docs" / "archive" / "mvp" / "evaluation" / "mvp-evaluation-samples.json"
+)
 
 
 def main() -> None:
@@ -41,7 +43,7 @@ def main() -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the MVP context retrieval regression evaluation."
+        description="Run the archived MVP context retrieval regression evaluation."
     )
     parser.add_argument(
         "--samples",
