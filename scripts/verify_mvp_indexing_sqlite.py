@@ -23,16 +23,16 @@ from agent_context_platform.storage import (
 )
 
 
-REPO_NAME = "phase2-e2e"
+REPO_NAME = "mvp-indexing"
 JAVA_PATH = "src/main/java/example/PaymentMessageBuilder.java"
 SQL_PATH = "schema/payment.sql"
 MARKDOWN_PATH = "docs/payment.md"
 
 
 def main() -> None:
-    # 阶段二验证脚本会读真实样本文件并写入可查看的 SQLite；它补充 pytest 的内存库路径。
+    # MVP 索引验证脚本会读真实样本文件并写入可查看的 SQLite；它补充 pytest 的内存库路径。
     args = _parse_args()
-    result = verify_phase2_e2e(
+    result = verify_mvp_indexing(
         sample_root=args.sample_root,
         sqlite_db=args.sqlite_db or args.sample_root / "indexed-items.sqlite",
         reset=not args.keep_existing,
@@ -40,7 +40,7 @@ def main() -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
-def verify_phase2_e2e(
+def verify_mvp_indexing(
     *,
     sample_root: Path,
     sqlite_db: Path,
@@ -93,15 +93,15 @@ def verify_phase2_e2e(
 
 def _parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[1]
-    default_sample_root = repo_root / ".local" / "phase2-e2e"
+    default_sample_root = repo_root / ".local" / "mvp-indexing"
     parser = argparse.ArgumentParser(
-        description="Verify phase 2 indexers with persisted SQLite sample data."
+        description="Verify MVP indexers with persisted SQLite sample data."
     )
     parser.add_argument(
         "--sample-root",
         type=Path,
         default=default_sample_root,
-        help="Directory containing phase2-e2e Java, SQL and Markdown sample files.",
+        help="Directory containing MVP Java, SQL and Markdown sample files.",
     )
     parser.add_argument(
         "--sqlite-db",
@@ -123,7 +123,7 @@ def _assert_required_files(sample_root: Path) -> None:
     ]
     if missing:
         raise FileNotFoundError(
-            "phase2-e2e sample files are missing: " + ", ".join(missing)
+            "MVP indexing sample files are missing: " + ", ".join(missing)
         )
 
 

@@ -7,9 +7,9 @@ from pathlib import Path
 
 def _load_script_module():
     script_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "verify_phase2_e2e_sqlite.py"
+        Path(__file__).resolve().parents[1] / "scripts" / "verify_mvp_indexing_sqlite.py"
     )
-    spec = importlib.util.spec_from_file_location("verify_phase2_e2e_sqlite", script_path)
+    spec = importlib.util.spec_from_file_location("verify_mvp_indexing_sqlite", script_path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -17,11 +17,11 @@ def _load_script_module():
     return module
 
 
-def test_phase2_e2e_script_persists_indexed_items_to_file_sqlite(
+def test_mvp_indexing_script_persists_indexed_items_to_file_sqlite(
     tmp_path: Path,
 ) -> None:
     module = _load_script_module()
-    sample_root = tmp_path / "phase2-e2e"
+    sample_root = tmp_path / "mvp-indexing"
     (sample_root / "src/main/java/example").mkdir(parents=True)
     (sample_root / "schema").mkdir()
     (sample_root / "docs").mkdir()
@@ -66,7 +66,7 @@ Map provider errors to internal status.
     )
     sqlite_db = sample_root / "indexed-items.sqlite"
 
-    result = module.verify_phase2_e2e(sample_root=sample_root, sqlite_db=sqlite_db)
+    result = module.verify_mvp_indexing(sample_root=sample_root, sqlite_db=sqlite_db)
 
     assert result["status"] == "PASS"
     assert result["indexed_total"] == 9
@@ -81,9 +81,9 @@ Map provider errors to internal status.
     assert sorted(rows) == [("code", 2), ("db_schema", 4), ("doc", 3)]
 
 
-def test_phase2_e2e_script_reuses_existing_sqlite_file(tmp_path: Path) -> None:
+def test_mvp_indexing_script_reuses_existing_sqlite_file(tmp_path: Path) -> None:
     module = _load_script_module()
-    sample_root = tmp_path / "phase2-e2e"
+    sample_root = tmp_path / "mvp-indexing"
     (sample_root / "src/main/java/example").mkdir(parents=True)
     (sample_root / "schema").mkdir()
     (sample_root / "docs").mkdir()
@@ -111,7 +111,7 @@ public class PaymentMessageBuilder {
         connection.execute("create table local_note (value text)")
         connection.execute("insert into local_note values ('keep me')")
 
-    module.verify_phase2_e2e(sample_root=sample_root, sqlite_db=sqlite_db)
+    module.verify_mvp_indexing(sample_root=sample_root, sqlite_db=sqlite_db)
 
     with sqlite3.connect(sqlite_db) as connection:
         note = connection.execute("select value from local_note").fetchone()

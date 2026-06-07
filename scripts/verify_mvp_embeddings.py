@@ -21,12 +21,12 @@ from agent_context_platform.storage import IndexedItemRepository, make_engine
 
 
 def main() -> None:
-    # 任务 12 验证会真实调用外部 embedding provider；运行前必须确认 .env/ACP_EMBEDDING_*。
+    # MVP embedding 验证会真实调用外部 provider；运行前必须确认 .env/ACP_EMBEDDING_*。
     args = _parse_args()
     _load_env_file(args.env_file)
     settings = load_runtime_settings()
     if settings.embedding is None:
-        raise SystemExit("缺少 ACP_EMBEDDING_* 配置，无法验证任务 12。")
+        raise SystemExit("缺少 ACP_EMBEDDING_* 配置，无法验证 MVP embedding。")
 
     provider = build_embedding_provider(settings.embedding)
     engine = make_engine(settings.database_url, echo=settings.sql_echo)
@@ -73,7 +73,7 @@ def main() -> None:
     ):
         raise AssertionError("query embedding search did not contribute vector score")
 
-    print("task12 embedding verification passed")
+    print("MVP embedding verification passed")
     print(f"provider={provider.identity.provider}")
     print(f"model={settings.embedding.model}")
     print(f"dimension={settings.embedding.dimension}")
@@ -91,7 +91,7 @@ def main() -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify task 12 embedding generation and storage."
+        description="Verify MVP embedding generation and storage."
     )
     parser.add_argument(
         "--env-file",
@@ -116,21 +116,21 @@ def _load_env_file(path: Path | None) -> None:
 def _sample_items():
     # 使用最小脱敏样本覆盖 code/db_schema/doc 三类资产，验证批量 embedding 写入链路。
     java_items = index_java_source(
-        "src/main/java/example/Task12PaymentService.java",
+        "src/main/java/example/MvpPaymentService.java",
         """
-        class Task12PaymentService {
+        class MvpPaymentService {
             void buildPaymentMessage() {
             }
         }
         """,
     )
     sql_items = index_sql_ddl(
-        "db/task12_payment.sql",
-        "CREATE TABLE task12_payment_order (id bigint, status varchar(20));",
+        "db/mvp_embedding_payment.sql",
+        "CREATE TABLE mvp_embedding_payment_order (id bigint, status varchar(20));",
     )
     doc_items = index_markdown_document(
-        "docs/task12-payment.md",
-        "# Task12 Payment Integration\n\nBuild payment messages for order events.",
+        "docs/mvp-embedding-payment.md",
+        "# MVP Payment Integration\n\nBuild payment messages for order events.",
     )
     return [java_items[0], sql_items[0], doc_items[0]]
 

@@ -15,7 +15,7 @@ from agent_context_platform.storage import Base, IndexedItemRepository
 
 
 class FakeEmbeddingProvider:
-    identity = EmbeddingIdentity(provider="fake", model="task14", dimension=3)
+    identity = EmbeddingIdentity(provider="fake", model="mvp-index-cli", dimension=3)
     batch_size = 2
 
     def __init__(self) -> None:
@@ -27,7 +27,7 @@ class FakeEmbeddingProvider:
 
 
 class FailingEmbeddingProvider:
-    identity = EmbeddingIdentity(provider="fake", model="task14", dimension=3)
+    identity = EmbeddingIdentity(provider="fake", model="mvp-index-cli", dimension=3)
     batch_size = 2
 
     def embed_texts(self, _texts: Sequence[str]) -> list[list[float]]:
@@ -135,7 +135,7 @@ def test_with_embedding_explicitly_writes_embeddings(tmp_path: Path) -> None:
             "ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}",
             "ACP_EMBEDDING_BASE_URL": "https://embedding.example.test",
             "ACP_EMBEDDING_API_KEY": "secret",
-            "ACP_EMBEDDING_MODEL": "task14",
+            "ACP_EMBEDDING_MODEL": "mvp-index-cli",
             "ACP_EMBEDDING_DIMENSION": "3",
             "ACP_EMBEDDING_BATCH_SIZE": "2",
         },
@@ -171,7 +171,7 @@ def test_embedding_configuration_is_ignored_without_explicit_flag(tmp_path: Path
             "ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}",
             "ACP_EMBEDDING_BASE_URL": "https://embedding.example.test",
             "ACP_EMBEDDING_API_KEY": "secret",
-            "ACP_EMBEDDING_MODEL": "task14",
+            "ACP_EMBEDDING_MODEL": "mvp-index-cli",
             "ACP_EMBEDDING_DIMENSION": "3",
             "ACP_EMBEDDING_BATCH_SIZE": "2",
         },
@@ -240,7 +240,7 @@ def test_with_embedding_reports_provider_failure_without_traceback(tmp_path: Pat
             "ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}",
             "ACP_EMBEDDING_BASE_URL": "https://embedding.example.test",
             "ACP_EMBEDDING_API_KEY": "secret",
-            "ACP_EMBEDDING_MODEL": "task14",
+            "ACP_EMBEDDING_MODEL": "mvp-index-cli",
             "ACP_EMBEDDING_DIMENSION": "3",
             "ACP_EMBEDDING_BATCH_SIZE": "2",
         },

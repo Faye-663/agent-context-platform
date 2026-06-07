@@ -224,9 +224,9 @@ uv run --extra test pytest tests/test_mcp_server.py
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_task13"
+$env:ACP_DATABASE_URL = "postgresql+psycopg://postgres@localhost:55432/agent_context_platform_mvp_pgvector"
 uv run alembic upgrade head
-uv run --extra test python scripts/verify_task13_pgvector_search.py
+uv run --extra test python scripts/verify_mvp_pgvector_search.py
 ```
 
 ### embedding 写入验证
@@ -236,7 +236,7 @@ uv run --extra test python scripts/verify_task13_pgvector_search.py
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = ".uv-python"
-uv run --extra test python scripts/verify_task12_embeddings.py --env-file .env
+uv run --extra test python scripts/verify_mvp_embeddings.py --env-file .env
 ```
 
 ## 后续待办

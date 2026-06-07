@@ -11,9 +11,9 @@ from agent_context_platform.runtime import EmbeddingProviderSettings, RuntimeSet
 
 def _load_script_module():
     script_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "verify_task12_embeddings.py"
+        Path(__file__).resolve().parents[1] / "scripts" / "verify_mvp_embeddings.py"
     )
-    spec = importlib.util.spec_from_file_location("verify_task12_embeddings", script_path)
+    spec = importlib.util.spec_from_file_location("verify_mvp_embeddings", script_path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -21,7 +21,7 @@ def _load_script_module():
     return module
 
 
-def test_task12_embedding_script_uses_runtime_provider_factory(
+def test_mvp_embedding_script_uses_runtime_provider_factory(
     monkeypatch,
     capsys,
 ) -> None:
@@ -69,7 +69,7 @@ def test_task12_embedding_script_uses_runtime_provider_factory(
 
         def list_with_embeddings(self, **_kwargs):
             return [
-                (SimpleNamespace(id="code:task12"), [1.0, 0.0, 0.0]),
+                (SimpleNamespace(id="code:mvp-embedding"), [1.0, 0.0, 0.0]),
                 (SimpleNamespace(id="code:existing-without-jina"), None),
             ]
 
@@ -80,7 +80,7 @@ def test_task12_embedding_script_uses_runtime_provider_factory(
         def search(self, _query):
             return [
                 SimpleNamespace(
-                    item=SimpleNamespace(id="code:task12"),
+                    item=SimpleNamespace(id="code:mvp-embedding"),
                     score_parts={"vector": 0.75},
                 )
             ]
@@ -96,9 +96,9 @@ def test_task12_embedding_script_uses_runtime_provider_factory(
     monkeypatch.setattr(module, "IndexedItemRepository", FakeRepository)
     monkeypatch.setattr(module, "HybridSearchService", FakeSearchService)
     monkeypatch.setattr(module, "embed_and_save_items", lambda *_args: 3)
-    monkeypatch.setattr(module, "_sample_items", lambda: [SimpleNamespace(id="code:task12")])
+    monkeypatch.setattr(module, "_sample_items", lambda: [SimpleNamespace(id="code:mvp-embedding")])
     monkeypatch.setattr(module, "_assert_embeddings", lambda *_args: None)
-    monkeypatch.setattr(sys, "argv", ["verify_task12_embeddings.py"])
+    monkeypatch.setattr(sys, "argv", ["verify_mvp_embeddings.py"])
 
     module.main()
 
@@ -111,8 +111,8 @@ def test_filter_rows_by_ids_ignores_existing_items_without_current_embedding() -
     module = _load_script_module()
 
     rows = [
-        (SimpleNamespace(id="code:task12"), [1.0, 0.0, 0.0]),
+        (SimpleNamespace(id="code:mvp-embedding"), [1.0, 0.0, 0.0]),
         (SimpleNamespace(id="code:existing-without-jina"), None),
     ]
 
-    assert module._filter_rows_by_ids(rows, {"code:task12"}) == [rows[0]]
+    assert module._filter_rows_by_ids(rows, {"code:mvp-embedding"}) == [rows[0]]
