@@ -227,7 +227,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 
 ## 日志要求
 
-每次查询应记录：
+Context API 每次查询应记录：
 
 - request id。
 - API name。
@@ -238,3 +238,5 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应调用�
 - 错误码。
 
 日志必须便于排查召回为空、结果无关、向量服务失败、数据库失败等问题。
+
+MCP wrapper 额外提供可选服务端 JSONL 调试日志，用于调试和固定评测复盘。该日志记录 FastMCP 完成 schema 解析后的 MCP tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；默认不记录完整请求或完整返回正文。只有显式开启 `ACP_MCP_LOG_PAYLOADS=true` 时，才写入完整 tool arguments 和 tool result payload。P0 不抓 raw JSON-RPC wire frame，也不依赖 MCP logging notification。
