@@ -34,6 +34,11 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 |---|---|
 | `source_type` | `code`、`db_schema`、`doc` |
 | `repo` | 来源仓库或语料标识 |
+| `branch` | 索引运行时 best-effort 采集的 Git branch，可为空 |
+| `commit_sha` | 索引运行时 best-effort 采集的 Git commit SHA，可为空 |
+| `file_hash` | 索引时来源文件内容的 SHA-256 指纹，可为空 |
+| `indexed_at` | 索引批次时间，使用 UTC ISO 8601 字符串，可为空 |
+| `index_batch_id` | 单次 `acp-index` 运行生成的批次 ID，可为空 |
 | `path` | 来源文件路径 |
 | `start_line` | 起始行号 |
 | `end_line` | 结束行号 |
@@ -48,6 +53,8 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 - db_schema 来源必须包含 `table`。
 - doc 来源必须包含 `path`、`heading_path`、`start_line`、`end_line`。
 - `end_line` 不能小于 `start_line`。
+- `branch`、`commit_sha` 是 best-effort provenance；非 Git 目录、detached HEAD 或 Git 不可用时允许为空。
+- `file_hash`、`indexed_at`、`index_batch_id` 由 `acp-index` 写入，用于判断来源新鲜度和索引批次边界。
 
 ### SearchResult
 
@@ -143,6 +150,11 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
         "source": {
           "source_type": "code",
           "repo": "example",
+          "branch": "main",
+          "commit_sha": "abc123",
+          "file_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "indexed_at": "2026-06-10T08:30:00Z",
+          "index_batch_id": "batch-001",
           "path": "src/main/java/example/PaymentMessageBuilder.java",
           "start_line": 32,
           "end_line": 88,
@@ -158,6 +170,11 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
       "source": {
         "source_type": "code",
         "repo": "example",
+        "branch": "main",
+        "commit_sha": "abc123",
+        "file_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "indexed_at": "2026-06-10T08:30:00Z",
+        "index_batch_id": "batch-001",
         "path": "src/main/java/example/PaymentMessageBuilder.java",
         "start_line": 32,
         "end_line": 88,

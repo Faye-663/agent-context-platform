@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
@@ -14,8 +16,15 @@ from agent_context_platform.models import (
 
 
 def test_source_citation_supports_code_sql_and_markdown_sources() -> None:
+    indexed_at = datetime(2026, 6, 10, 8, 30, tzinfo=UTC)
     code = SourceCitation(
         source_type=SourceType.CODE,
+        repo="payment-service",
+        branch="main",
+        commit_sha="abc123",
+        file_hash="f" * 64,
+        indexed_at=indexed_at,
+        index_batch_id="batch-001",
         path="src/main/java/example/PaymentMessageBuilder.java",
         start_line=12,
         end_line=34,
@@ -31,6 +40,11 @@ def test_source_citation_supports_code_sql_and_markdown_sources() -> None:
     )
 
     assert code.path == "src/main/java/example/PaymentMessageBuilder.java"
+    assert code.branch == "main"
+    assert code.commit_sha == "abc123"
+    assert code.file_hash == "f" * 64
+    assert code.indexed_at == indexed_at
+    assert code.index_batch_id == "batch-001"
     assert sql.table == "payment_order"
     assert doc.heading_path == "Payment Integration > Message Generation"
 
@@ -110,6 +124,30 @@ def test_json_serialization_matches_context_api_contract_shape() -> None:
     assert payload["item"]["asset_type"] == "code"
     assert payload["item"]["source"]["path"] == "src/main/java/example/PaymentMessageBuilder.java"
     assert payload["source"]["symbol"] == "PaymentMessageBuilder.build"
+
+
+def test_source_citation_serializes_provenance_fields() -> None:
+    source = SourceCitation(
+        source_type=SourceType.CODE,
+        repo="payment-service",
+        branch="main",
+        commit_sha="abc123",
+        file_hash="f" * 64,
+        indexed_at=datetime(2026, 6, 10, 8, 30, tzinfo=UTC),
+        index_batch_id="batch-001",
+        path="src/main/java/example/PaymentMessageBuilder.java",
+        start_line=32,
+        end_line=88,
+        symbol="PaymentMessageBuilder.build",
+    )
+
+    payload = source.model_dump(mode="json")
+
+    assert payload["branch"] == "main"
+    assert payload["commit_sha"] == "abc123"
+    assert payload["file_hash"] == "f" * 64
+    assert payload["indexed_at"] == "2026-06-10T08:30:00Z"
+    assert payload["index_batch_id"] == "batch-001"
 
 
 def test_task_context_requires_citation_summary_for_all_results() -> None:

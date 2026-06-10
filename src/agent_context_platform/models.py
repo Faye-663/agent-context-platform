@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -33,6 +34,14 @@ class SourceCitation(BaseModel):
     source_type: SourceType
     # repo 用于区分不同代码库或样本集，例如 "mvp-indexing"。
     repo: str | None = None
+    # branch/commit_sha 是索引运行时 best-effort 采集的 Git 坐标；非 Git 目录允许为空。
+    branch: str | None = None
+    commit_sha: str | None = None
+    # file_hash 记录索引时的文件内容指纹，后续用于判断证据是否可能过期。
+    file_hash: str | None = None
+    # indexed_at/index_batch_id 记录索引批次，便于调试 freshness 和批处理边界。
+    indexed_at: datetime | None = None
+    index_batch_id: str | None = None
     # path 是仓库内相对路径，例如 "src/main/java/example/PaymentService.java"。
     path: str | None = None
     # start_line/end_line 让 Agent 能回到原始文件核对证据。

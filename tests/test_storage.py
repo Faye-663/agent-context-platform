@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import create_engine
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
@@ -34,6 +36,12 @@ def test_repository_inserts_and_reads_three_asset_types() -> None:
         "code:PaymentMessageBuilder.build",
         SourceCitation(
             source_type=SourceType.CODE,
+            repo="payment-service",
+            branch="main",
+            commit_sha="abc123",
+            file_hash="f" * 64,
+            indexed_at=datetime(2026, 6, 10, 8, 30, tzinfo=UTC),
+            index_batch_id="batch-001",
             path="src/main/java/example/PaymentMessageBuilder.java",
             start_line=10,
             end_line=30,
@@ -73,6 +81,13 @@ def test_repository_inserts_and_reads_three_asset_types() -> None:
         assert repository.list(
             path="src/main/java/example/PaymentMessageBuilder.java"
         ) == [code]
+        stored_code = repository.get("code:PaymentMessageBuilder.build")
+        assert stored_code is not None
+        assert stored_code.source.branch == "main"
+        assert stored_code.source.commit_sha == "abc123"
+        assert stored_code.source.file_hash == "f" * 64
+        assert stored_code.source.indexed_at == datetime(2026, 6, 10, 8, 30, tzinfo=UTC)
+        assert stored_code.source.index_batch_id == "batch-001"
         assert repository.list(language="java") == [code]
         assert repository.list(symbol_type="method") == [code]
         assert repository.list(table="payment_order") == [schema]
