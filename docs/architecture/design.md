@@ -53,7 +53,7 @@ IndexedItemRepository + optional EmbeddingProvider
 
 - `query`：必填，非空。
 - `limit`：默认 `10`，范围 `1..50`。
-- `filters`：支持 `language`、`symbol_type`、`path_prefix`、`table`。
+- `filters`：支持 `repo`、`language`、`symbol_type`、`path_prefix`、`table`。
 - `query_embedding`：可选；用于调用方显式提供 query embedding。
 - `request_id`：可选；不传时 API 自动生成。
 
@@ -61,7 +61,7 @@ IndexedItemRepository + optional EmbeddingProvider
 
 - `task`：必填，非空。
 - `limits`：按资产类型控制返回数量。
-- `constraints`：当前主要用于 `language` 等跨检索约束。
+- `constraints`：当前主要用于 `repo`、`language` 等跨检索约束。
 - `request_id`：可选。
 
 API 层只负责请求校验、错误 envelope 和日志包装，检索由 `HybridSearchService` 执行，上下文聚合由 `TaskContextBuilder` 执行。
@@ -75,7 +75,7 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 - `SearchResult` 表示一次检索命中。
 - `TaskContext` 表示给 Agent 的任务上下文包。
 
-`SourceCitation` 除了 repo、path、line range、symbol/table/heading 等定位字段，还保存索引来源 provenance：best-effort Git branch / commit、文件 SHA-256、索引时间和索引批次 ID。非 Git 目录或无法读取 Git 信息时，branch / commit 允许为空，索引流程继续执行。
+`SourceCitation` 除了 repo、path、line range、symbol/table/heading 等定位字段，还保存索引来源 provenance：best-effort Git branch / commit、文件 SHA-256、索引时间和索引批次 ID。当前 `repo` 用作 GitLab code repo identity 和 multi code repo 共库隔离键；非 Git 目录或无法读取 Git 信息时，branch / commit 允许为空，索引流程继续执行。
 
 模型强制约束：
 
@@ -91,10 +91,12 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 
 `IndexedItemRepository` 保存：
 
-- `indexed_items`：工程资产、结构化 metadata 和来源字段。
-- `item_embeddings`：按 provider、model、dimension 和 task identity 保存 embedding。
+- `indexed_items`：工程资产、结构化 metadata 和来源字段；存储身份为 `(repo, id)`。
+- `item_embeddings`：按 `repo`、item id、provider、model、dimension 和 task identity 保存 embedding。
 
 查询和写入必须使用匹配的 embedding identity，避免不同向量空间混用。
+
+检索可以通过 `repo` filter 限定候选集。未传 repo 时保持兼容的跨 repo 搜索；如果运行时开启 `ACP_REQUIRE_REPO_FILTER`，请求必须携带 repo 或由 `ACP_DEFAULT_REPO` 注入。
 
 ## 索引流程
 
@@ -102,7 +104,7 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 
 - 递归扫描 `--root`。
 - 应用 include/exclude。
-- 使用根目录名或 `--repo` 生成 repo 标识。
+- 使用根目录名或 `--repo` 生成 repo 标识；生产使用应显式传入规范化 GitLab code repo identity。
 - 生成本次运行的索引批次 ID 和索引时间。
 - best-effort 读取 `--root` 的 Git branch / commit；读取失败时记录 provenance warning，不阻断索引。
 - 按原始文件 bytes 计算 SHA-256，写入每条来源引用。
@@ -134,6 +136,8 @@ MCP wrapper 只通过 `ContextApiToolClient` 调用 Context API，不直连 repo
 - `ACP_ENV`
 - `ACP_LOG_LEVEL`
 - `ACP_SQL_ECHO`
+- `ACP_DEFAULT_REPO`
+- `ACP_REQUIRE_REPO_FILTER`
 - `ACP_CONTEXT_API_BASE_URL`
 - `ACP_MCP_TRANSPORT`
 - `ACP_MCP_HOST`

@@ -24,6 +24,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - `IndexedItem`、`SourceCitation`、`SearchResult`、`TaskContext` 公共模型。
 - PostgreSQL / pgvector 存储，SQLite 保留为测试路径。
 - 索引来源 provenance：repo、best-effort branch / commit、file hash、index time 和 index batch。
+- Multi code repo 共库隔离：indexed item 和 embedding 按 repo 隔离，检索支持 repo filter。
 - 关键词、向量和结构化过滤组合的 Hybrid Search。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
@@ -40,6 +41,8 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - Context API 是稳定内核，MCP wrapper 只能调用 Context API，不直接访问数据库或复制检索逻辑。
 - API 返回结果必须包含可追溯 `SourceCitation`；不能把无来源自然语言包装成工程事实。
 - `SourceCitation` 应支持 repo、best-effort branch / commit、file hash、index time 和 index batch，用于判断来源新鲜度和索引批次边界。
+- `repo` 当前表示 GitLab code repo identity；同一个 `IndexedItem.id` 只在单个 repo 内唯一。
+- Context API 应支持 `filters.repo` 和 `constraints.repo`；严格模式下缺少 repo 必须返回明确参数错误。
 - `request_id` 应贯穿 HTTP、MCP 调试日志和错误定位。
 - `query_embedding` 仅作为显式调用能力，用于测试或上游已生成 query embedding 的场景。
 
@@ -47,6 +50,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 
 - 真实工程入库只能通过离线批处理入口 `acp-index` 完成。
 - `acp-index` 必须支持 `dry-run`、include/exclude、显式 repo 标识和 JSON 摘要。
+- 生产索引应显式传入稳定的 GitLab code repo 标识，不能依赖本地目录名表达多仓隔离。
 - `acp-index` 必须为成功索引的 item 写入 file hash、index time 和 index batch；Git branch / commit 以 best-effort 方式采集，采集失败不得阻断非 Git 样本或普通索引。
 - `acp-index` 默认不调用外部 embedding provider；只有显式传入 `--with-embedding` 才写入 embedding。
 - Alembic 和 `acp-index` 只读取当前进程环境变量，不自动加载 `.env`。
@@ -84,6 +88,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - 完整权限系统。
 - SSE MCP transport。
 - 多仓库关联与跨仓依赖图谱。
+- doc/code/sql 与 organization 之间的业务归属或多对多适用关系。
 
 ## 待确认项
 

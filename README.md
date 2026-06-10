@@ -14,6 +14,7 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 - Java、SQL DDL、Markdown 离线索引器。
 - SQLAlchemy repository、Alembic 迁移、PostgreSQL / pgvector 存储。
 - 索引来源 provenance：`acp-index` 写入 repo、best-effort branch / commit、file hash、index time 和 index batch。
+- Multi code repo 共库隔离：`repo + id` 作为存储身份，检索支持 repo filter。
 - Hybrid Search：关键词、向量、结构化过滤、有界合并和统一 `SearchResult`。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
@@ -38,6 +39,7 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 | [ADR-002](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | Hybrid Search 与 PostgreSQL / pgvector 决策 |
 | [ADR-003](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | Python FastAPI 应用栈决策 |
 | [ADR-004](docs/decisions/ADR-004-model-scoped-embedding-storage.md) | 多模型 embedding 存储决策 |
+| [ADR-005](docs/decisions/ADR-005-repo-scoped-index-identity.md) | Multi code repo 共库隔离身份决策 |
 
 ### 阶段记录与历史资料
 
@@ -85,6 +87,8 @@ Agent 基于 source citation 继续设计、修改或 Review
 | `ACP_ENV` | 运行环境标识 | 默认 `local` |
 | `ACP_LOG_LEVEL` | 应用日志级别 | 默认 `INFO` |
 | `ACP_SQL_ECHO` | SQLAlchemy SQL 日志开关 | 默认 `false` |
+| `ACP_DEFAULT_REPO` | Context API 默认注入的 code repo filter | 默认不注入；应与 `acp-index --repo` 使用同一值 |
+| `ACP_REQUIRE_REPO_FILTER` | 是否要求 search/build-task-context 必须带 repo | 默认 `false`；为 `true` 时请求或 `ACP_DEFAULT_REPO` 必须提供 repo |
 | `ACP_CONTEXT_API_BASE_URL` | MCP wrapper 调用 Context API 的地址 | 默认 `http://127.0.0.1:8000` |
 | `ACP_MCP_TRANSPORT` | `acp-mcp-server` transport | 默认 `stdio`；remote MCP 只支持 `streamable-http` |
 | `ACP_MCP_HOST` | remote MCP HTTP host | 默认 `127.0.0.1` |
@@ -141,13 +145,15 @@ Agent 基于 source citation 继续设计、修改或 Review
 
    ```powershell
    uv run acp-index --root D:\Code\YourProject --dry-run
-   uv run acp-index --root D:\Code\YourProject --repo your-project
+   uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project
    ```
+
+   `--repo` 在生产使用中应传入稳定的 GitLab code repo 标识，例如规范化后的 `gitlab.example.com/group/project`。不要把带 token、用户名或 `.git` 后缀的原始 remote URL 直接写入索引。
 
    如需同时写入 embedding，必须补齐 `ACP_EMBEDDING_*` 并显式开启：
 
    ```powershell
-   uv run acp-index --root D:\Code\YourProject --repo your-project --with-embedding
+   uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project --with-embedding
    ```
 
 8. 启动 Context API：
@@ -178,11 +184,13 @@ Agent 基于 source citation 继续设计、修改或 Review
 
 ## 当前运行边界
 
-固定 ASGI 入口位于 `agent_context_platform.asgi:app`。运行配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误或 embedding provider 配置不完整时，会在启动阶段失败。
+固定 ASGI 入口位于 `agent_context_platform.asgi:app`。运行配置由 `agent_context_platform.runtime` 统一加载；缺少 `ACP_DATABASE_URL`、日志级别格式错误、repo 严格模式缺少 repo filter 或 embedding provider 配置不完整时，会在启动或请求阶段明确失败。
 
 MCP server 是 Context API 的包装层。它依赖可访问的 HTTP 服务，不直接访问 repository、SQLAlchemy session 或数据库。
 
 真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；摘要包含 `branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
+
+同一数据库可以保存多个 GitLab code repo 的索引；`indexed_items` 和 `item_embeddings` 都按 repo 隔离。升级到 repo-scoped identity 后，历史索引数据需要重新执行 `acp-index` 重建，不做旧数据归属猜测。
 
 MCP JSONL 调试日志默认关闭。开启 `ACP_MCP_LOG_FILE` 后，日志记录 FastMCP 完成 schema 解析后的 tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；它不抓 raw JSON-RPC wire frame。只有 `ACP_MCP_LOG_PAYLOADS=true` 时才写完整 payload。
 
