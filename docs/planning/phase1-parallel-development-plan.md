@@ -83,6 +83,15 @@ Phase 1 的目标是让 ACP 的检索能力变得可评测、可诊断、可解�
 - B 的数据模型变更应尽早合入，否则 C 的 retrieval 实现会产生返工。
 - provenance 字段需要兼顾后续 context citation、freshness 判断和 multi-repo 扩展。
 
+跨开发者依赖与接口约定：
+
+- B 输出给 A/C 的 `SourceCitation` provenance contract 包括 `branch`、`commit_sha`、`file_hash`、`indexed_at`、`index_batch_id`。
+- `branch`、`commit_sha` 是 nullable best-effort 字段；A/C 不能假设它们在非 Git 目录、detached HEAD 或 Git 不可用时一定存在。
+- `file_hash`、`indexed_at`、`index_batch_id` 是 `acp-index` 成功写入 item 的索引来源字段，供 A 的 MCP contract / Playground 展示、C 的 trace / context composer / sufficiency 消费。
+- A 不另定义 provenance response shape；应直接消费 `SourceCitation` 中的字段。
+- C 在 trace、context package 和 sufficiency 中把这些字段当作 provenance 信号，不把缺失 branch / commit 当成索引失败。
+- B 的 `P1-T4` 不承诺 repo filter、repo-scoped primary key、旧数据重建、symbol recall、RRF 或 context sufficiency 判断；这些分别归属 `P1-T5`、`P1-T9` retrieval 接入和 C 的检索 / 上下文任务。
+
 ### 开发者 C：检索与上下文组装
 
 主责：

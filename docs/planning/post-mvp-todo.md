@@ -125,11 +125,17 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 - 可判断索引是否对应当前工作区或指定版本。
 - 过期、来源不明或跨仓来源可被标记为风险。
 
+**已确认接口边界：**
+
+- provenance 字段进入 `SourceCitation`，包括 `branch`、`commit_sha`、`file_hash`、`indexed_at`、`index_batch_id`。
+- `branch` 和 `commit_sha` 是 best-effort Git provenance；非 Git 目录、detached HEAD 或 Git 不可用时允许为空。
+- `file_hash`、`indexed_at`、`index_batch_id` 由 `acp-index` 写入，用于后续 freshness 判断、context citation 和调试展示。
+- `P1-T4` 不负责 repo 过滤、repo-scoped primary key、旧数据重建、symbol recall、RRF 或 context sufficiency 判断。
+
 **待明确：**
 
-- 是否记录 branch、commit SHA、worktree path、file hash、index batch id。
-- 这些 provenance 字段放在 `SourceCitation`、`IndexedItem.metadata`，还是独立索引元数据表。
-- Agent response 中展示哪些 provenance，debug trace 中展示哪些。
+- Agent response 和 debug trace 对 provenance 字段的展示层级。
+- 是否需要在后续任务中增加 freshness 风险码或更细粒度 stale 判断。
 
 ### P1-T5: 多仓共库检索隔离
 
@@ -144,6 +150,8 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 - 多 repo 存在相同相对路径和 symbol/table/heading 时，`session.merge` 可能覆盖旧 item。
 
 **依赖：** `P1-T4` 的 repo identity / provenance 设计。
+
+**已确认依赖边界：** `P1-T4` 只提供 provenance contract；`P1-T5` 才处理 repo 作为过滤条件、主键组成部分或旧数据重建策略。
 
 **被依赖：** `P1-T6`、`P1-T9`、`P1-T10`、`P2-T4`、`P2-T6`、`P2-T7`。
 

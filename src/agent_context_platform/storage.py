@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     CheckConstraint,
+    DateTime,
     ForeignKey,
     JSON,
     String,
@@ -53,6 +55,13 @@ class IndexedItemRecord(Base):
 
     source_type: Mapped[str] = mapped_column(String(32), index=True)
     repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    index_batch_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     path: Mapped[str | None] = mapped_column(String(1000), index=True, nullable=True)
     start_line: Mapped[int | None] = mapped_column(nullable=True)
     end_line: Mapped[int | None] = mapped_column(nullable=True)
@@ -78,6 +87,11 @@ class IndexedItemRecord(Base):
             item_metadata=metadata,
             source_type=source.source_type.value,
             repo=source.repo,
+            branch=source.branch,
+            commit_sha=source.commit_sha,
+            file_hash=source.file_hash,
+            indexed_at=source.indexed_at,
+            index_batch_id=source.index_batch_id,
             path=source.path,
             start_line=source.start_line,
             end_line=source.end_line,
@@ -94,6 +108,11 @@ class IndexedItemRecord(Base):
         source = SourceCitation(
             source_type=SourceType(self.source_type),
             repo=self.repo,
+            branch=self.branch,
+            commit_sha=self.commit_sha,
+            file_hash=self.file_hash,
+            indexed_at=_normalize_indexed_at(self.indexed_at),
+            index_batch_id=self.index_batch_id,
             path=self.path,
             start_line=self.start_line,
             end_line=self.end_line,
@@ -111,6 +130,13 @@ class IndexedItemRecord(Base):
             metadata=dict(self.item_metadata or {}),
             source=source,
         )
+
+
+def _normalize_indexed_at(value: datetime | None) -> datetime | None:
+    # SQLite 会把 timezone-aware datetime 读回 naive；统一补回 UTC，保持 API 输出稳定。
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 class ItemEmbeddingRecord(Base):

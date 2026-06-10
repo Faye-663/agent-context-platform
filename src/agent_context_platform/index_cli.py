@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
+import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
+from uuid import uuid4
 
 import sys
 from sqlalchemy.engine import make_url
@@ -68,6 +72,15 @@ class IndexedFile:
     items: list[IndexedItem]
 
 
+@dataclass(frozen=True)
+class IndexRunProvenance:
+    branch: str | None
+    commit_sha: str | None
+    indexed_at: datetime
+    index_batch_id: str
+    warnings: list[str]
+
+
 def main() -> None:
     raise SystemExit(run())
 
@@ -88,6 +101,7 @@ def run(
     root = args.root.resolve()
     repo = args.repo or root.name
     database = _redact_database_url(values.get("ACP_DATABASE_URL"))
+    provenance = _build_index_run_provenance(root)
 
     if not root.is_dir():
         failures.append(
@@ -103,6 +117,7 @@ def run(
                 items_written=0,
                 embedding_written=0,
                 failures=failures,
+                provenance=provenance,
                 started=started,
             ),
         )
@@ -118,7 +133,13 @@ def run(
         for path in scanned_files
         if _is_included(_relative_posix(path, root), include_patterns)
     ]
-    indexed_files = _index_files(root=root, repo=repo, files=indexable_files, failures=failures)
+    indexed_files = _index_files(
+        root=root,
+        repo=repo,
+        files=indexable_files,
+        failures=failures,
+        provenance=provenance,
+    )
     items = [item for indexed_file in indexed_files for item in indexed_file.items]
 
     if args.dry_run:
@@ -132,6 +153,7 @@ def run(
                 items_written=0,
                 embedding_written=0,
                 failures=failures,
+                provenance=provenance,
                 started=started,
             ),
         )
@@ -173,6 +195,7 @@ def run(
             items_written=items_written,
             embedding_written=embedding_written,
             failures=failures,
+            provenance=provenance,
             started=started,
         ),
     )
@@ -240,13 +263,18 @@ def _index_files(
     repo: str,
     files: Sequence[Path],
     failures: list[Failure],
+    provenance: IndexRunProvenance,
 ) -> list[IndexedFile]:
     indexed_files: list[IndexedFile] = []
     for path in files:
         relative_path = _relative_posix(path, root)
         try:
-            content = path.read_text(encoding="utf-8")
+            raw_content = path.read_bytes()
+            content = raw_content.decode("utf-8")
         except OSError as exc:
+            failures.append(Failure(path=relative_path, stage="read", error=str(exc)))
+            continue
+        except UnicodeDecodeError as exc:
             failures.append(Failure(path=relative_path, stage="read", error=str(exc)))
             continue
 
@@ -257,6 +285,15 @@ def _index_files(
             continue
 
         if items:
+            file_hash = _sha256_bytes(raw_content)
+            items = [
+                _with_source_provenance(
+                    item,
+                    provenance=provenance,
+                    file_hash=file_hash,
+                )
+                for item in items
+            ]
             indexed_files.append(IndexedFile(path=relative_path, items=items))
     return indexed_files
 
@@ -340,6 +377,7 @@ def _summary(
     items_written: int,
     embedding_written: int,
     failures: Sequence[Failure],
+    provenance: IndexRunProvenance,
     started: float,
 ) -> dict[str, Any]:
     items_estimated = sum(len(indexed_file.items) for indexed_file in indexed_files)
@@ -352,6 +390,11 @@ def _summary(
         "items_written": items_written,
         "items_failed": len(failures),
         "embedding_written": embedding_written,
+        "branch": provenance.branch,
+        "commit_sha": provenance.commit_sha,
+        "indexed_at": _isoformat_utc(provenance.indexed_at),
+        "index_batch_id": provenance.index_batch_id,
+        "provenance_warnings": provenance.warnings,
         "elapsed_seconds": round(time.perf_counter() - started, 3),
         "failures": [failure.as_dict() for failure in failures],
     }
@@ -383,6 +426,71 @@ def _is_excluded(path: str, exclude_patterns: Sequence[str]) -> bool:
         if fnmatch.fnmatchcase(path, pattern):
             return True
     return False
+
+
+def _build_index_run_provenance(root: Path) -> IndexRunProvenance:
+    warnings: list[str] = []
+    branch = _git_output(root, "branch", "--show-current")
+    if not branch:
+        warnings.append("git branch unavailable; branch provenance is null")
+        branch = None
+
+    commit_sha = _git_output(root, "rev-parse", "HEAD")
+    if not commit_sha:
+        warnings.append("git commit unavailable; commit_sha provenance is null")
+        commit_sha = None
+
+    return IndexRunProvenance(
+        branch=branch,
+        commit_sha=commit_sha,
+        indexed_at=datetime.now(UTC),
+        index_batch_id=str(uuid4()),
+        warnings=warnings,
+    )
+
+
+def _git_output(root: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    output = result.stdout.strip()
+    return output or None
+
+
+def _with_source_provenance(
+    item: IndexedItem,
+    *,
+    provenance: IndexRunProvenance,
+    file_hash: str,
+) -> IndexedItem:
+    source = item.source.model_copy(
+        update={
+            "branch": provenance.branch,
+            "commit_sha": provenance.commit_sha,
+            "file_hash": file_hash,
+            "indexed_at": provenance.indexed_at,
+            "index_batch_id": provenance.index_batch_id,
+        }
+    )
+    return item.model_copy(update={"source": source})
+
+
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _isoformat_utc(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _redact_database_url(database_url: str | None) -> str | None:
