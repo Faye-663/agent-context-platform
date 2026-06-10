@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Sequence
 from io import StringIO
@@ -54,6 +55,11 @@ def test_dry_run_scans_indexable_files_without_database_write(tmp_path: Path) ->
     assert summary["items_written"] == 0
     assert summary["items_failed"] == 0
     assert summary["embedding_written"] == 0
+    assert summary["index_batch_id"]
+    assert summary["indexed_at"]
+    assert summary["branch"] is None
+    assert summary["commit_sha"] is None
+    assert summary["provenance_warnings"]
     assert summary["failures"] == []
     assert not sqlite_db.exists()
 
@@ -90,6 +96,20 @@ def test_index_cli_writes_scanned_items_to_configured_database(tmp_path: Path) -
     assert {item.source.repo for item in code_items + schema_items + doc_items} == {
         "payment-app"
     }
+    assert {
+        item.source.index_batch_id for item in code_items + schema_items + doc_items
+    } == {summary["index_batch_id"]}
+    assert all(item.source.indexed_at is not None for item in code_items + schema_items + doc_items)
+    assert all(item.source.file_hash for item in code_items + schema_items + doc_items)
+    assert {item.source.branch for item in code_items + schema_items + doc_items} == {
+        summary["branch"]
+    }
+    assert {item.source.commit_sha for item in code_items + schema_items + doc_items} == {
+        summary["commit_sha"]
+    }
+    assert code_items[0].source.file_hash == _sha256(
+        sample_root / "src/main/java/example/PaymentService.java"
+    )
     assert code_items[0].source.path == "src/main/java/example/PaymentService.java"
 
 
@@ -296,3 +316,7 @@ Map provider errors.
 
 def _summary(output: StringIO) -> dict[str, object]:
     return json.loads(output.getvalue())
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
