@@ -51,13 +51,18 @@ def test_repository_inserts_and_reads_three_asset_types() -> None:
     )
     schema = make_item(
         "db_schema:payment_order",
-        SourceCitation(source_type=SourceType.DB_SCHEMA, table="payment_order"),
+        SourceCitation(
+            source_type=SourceType.DB_SCHEMA,
+            repo="payment-service",
+            table="payment_order",
+        ),
         {},
     )
     doc = make_item(
         "doc:payment-integration",
         SourceCitation(
             source_type=SourceType.DOC,
+            repo="payment-service",
             path="docs/design/payment-integration.md",
             start_line=1,
             end_line=8,
@@ -93,6 +98,78 @@ def test_repository_inserts_and_reads_three_asset_types() -> None:
         assert repository.list(table="payment_order") == [schema]
 
 
+def test_repository_keeps_same_item_id_isolated_by_repo() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    payment_item = make_item(
+        "code:src/main/java/example/PaymentService.java:PaymentService.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
+            path="src/main/java/example/PaymentService.java",
+            start_line=10,
+            end_line=30,
+            symbol="PaymentService.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+    order_item = make_item(
+        "code:src/main/java/example/PaymentService.java:PaymentService.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo="gitlab.example.com/orders/order-service",
+            path="src/main/java/example/PaymentService.java",
+            start_line=40,
+            end_line=60,
+            symbol="PaymentService.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(payment_item)
+        repository.save(order_item)
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+
+        assert repository.get(payment_item.id, repo=payment_item.source.repo) == payment_item
+        assert repository.get(order_item.id, repo=order_item.source.repo) == order_item
+        assert repository.list(asset_type=AssetType.CODE, repo=payment_item.source.repo) == [
+            payment_item
+        ]
+        assert repository.list(asset_type=AssetType.CODE, repo=order_item.source.repo) == [
+            order_item
+        ]
+
+
+def test_repository_rejects_persisted_items_without_repo() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    item = make_item(
+        "code:PaymentMessageBuilder.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            path="src/main/java/example/PaymentMessageBuilder.java",
+            start_line=10,
+            end_line=30,
+            symbol="PaymentMessageBuilder.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        try:
+            repository.save(item)
+        except ValueError as exc:
+            assert "repo" in str(exc)
+        else:
+            raise AssertionError("expected missing repo to be rejected")
+
+
 def test_postgresql_table_contains_pgvector_embedding_column() -> None:
     embedding_type = ItemEmbeddingRecord.__table__.c.embedding.type.compile(
         dialect=postgresql.dialect()
@@ -120,6 +197,7 @@ def test_repository_stores_embeddings_by_provider_model_and_dimension() -> None:
         "code:PaymentMessageBuilder.build",
         SourceCitation(
             source_type=SourceType.CODE,
+            repo="payment-service",
             path="src/main/java/example/PaymentMessageBuilder.java",
             start_line=10,
             end_line=30,
@@ -161,7 +239,11 @@ def test_repository_rejects_embedding_identity_dimension_mismatch() -> None:
     Base.metadata.create_all(engine)
     item = make_item(
         "db_schema:payment_order",
-        SourceCitation(source_type=SourceType.DB_SCHEMA, table="payment_order"),
+        SourceCitation(
+            source_type=SourceType.DB_SCHEMA,
+            repo="payment-service",
+            table="payment_order",
+        ),
         {},
     )
 
@@ -190,6 +272,7 @@ def test_repository_vector_search_orders_filters_and_limits_candidates() -> None
         "code:InvoicePrinter.print",
         SourceCitation(
             source_type=SourceType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
             path="src/main/java/example/InvoicePrinter.java",
             start_line=5,
             end_line=18,
@@ -201,6 +284,7 @@ def test_repository_vector_search_orders_filters_and_limits_candidates() -> None
         "code:PaymentMessageBuilder.build",
         SourceCitation(
             source_type=SourceType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
             path="src/main/java/example/PaymentMessageBuilder.java",
             start_line=10,
             end_line=30,
@@ -212,6 +296,7 @@ def test_repository_vector_search_orders_filters_and_limits_candidates() -> None
         "code:PythonHelper.build",
         SourceCitation(
             source_type=SourceType.CODE,
+            repo="gitlab.example.com/tools/python-helper",
             path="src/PythonHelper.py",
             start_line=1,
             end_line=5,
@@ -236,6 +321,7 @@ def test_repository_vector_search_orders_filters_and_limits_candidates() -> None
         repository = IndexedItemRepository(session)
         results = repository.search_by_vector(
             asset_type=AssetType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
             query_embedding=[0.0, 1.0, 0.0],
             embedding_identity=identity,
             language="java",
@@ -253,6 +339,7 @@ def test_pgvector_search_statement_uses_cosine_distance_and_limit() -> None:
 
     statement = build_pgvector_search_statement(
         asset_type=AssetType.CODE,
+        repo="gitlab.example.com/payments/payment-service",
         query_embedding=[0.0, 1.0, 0.0],
         embedding_identity=identity,
         language="java",
@@ -262,6 +349,7 @@ def test_pgvector_search_statement_uses_cosine_distance_and_limit() -> None:
 
     compiled = str(statement.compile(dialect=postgresql.dialect()))
     assert "item_embeddings.embedding <=>" in compiled
+    assert "indexed_items.repo" in compiled
     assert "item_embeddings.provider" in compiled
     assert "item_embeddings.model" in compiled
     assert "item_embeddings.dimension" in compiled

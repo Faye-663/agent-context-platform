@@ -40,6 +40,8 @@ class SearchFilters(BaseModel):
     path_prefix: str | None = None
     # table 用于 DB schema 搜索，例如 "payment_order"。
     table: str | None = None
+    # repo 限定 GitLab code repo identity，例如 "gitlab.example.com/group/project"。
+    repo: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -80,6 +82,8 @@ def create_app(
     search_service: HybridSearchService | None = None,
     *,
     search_service_scope: SearchServiceScope | None = None,
+    default_repo: str | None = None,
+    require_repo_filter: bool = False,
 ) -> FastAPI:
     # 测试可传单例 search_service；真实运行用 scope 为每次请求创建/关闭数据库会话。
     if search_service is None and search_service_scope is None:
@@ -106,6 +110,8 @@ def create_app(
                 asset_type=AssetType.CODE,
                 request=request,
                 search_service=scoped_search_service,
+                default_repo=default_repo,
+                require_repo_filter=require_repo_filter,
             )
 
     @app.post("/search-db-schema")
@@ -116,6 +122,8 @@ def create_app(
                 asset_type=AssetType.DB_SCHEMA,
                 request=request,
                 search_service=scoped_search_service,
+                default_repo=default_repo,
+                require_repo_filter=require_repo_filter,
             )
 
     @app.post("/search-doc")
@@ -126,6 +134,8 @@ def create_app(
                 asset_type=AssetType.DOC,
                 request=request,
                 search_service=scoped_search_service,
+                default_repo=default_repo,
+                require_repo_filter=require_repo_filter,
             )
 
     @app.post("/build-task-context")
@@ -138,7 +148,11 @@ def create_app(
                 context = TaskContextBuilder(scoped_search_service).build(
                     task=request.task,
                     limits=request.limits,
-                    constraints=request.constraints,
+                    constraints=_constraints_with_repo(
+                        request.constraints,
+                        default_repo=default_repo,
+                        require_repo_filter=require_repo_filter,
+                    ),
                 )
         except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
             logger.exception(
@@ -173,17 +187,25 @@ def _search_endpoint(
     asset_type: AssetType,
     request: SearchRequest,
     search_service: HybridSearchService,
+    default_repo: str | None,
+    require_repo_filter: bool,
 ) -> dict[str, list[dict[str, Any]]] | JSONResponse:
     started = time.perf_counter()
     request_id = request.request_id or str(uuid4())
     try:
+        filters = request.filters.model_dump(exclude_none=True)
+        filters = _filters_with_repo(
+            filters,
+            default_repo=default_repo,
+            require_repo_filter=require_repo_filter,
+        )
         # 三个 search endpoint 共用同一条路径，只通过 asset_type 区分代码、表结构和文档。
         results = search_service.search(
             HybridSearchQuery(
                 query=request.query,
                 asset_type=asset_type,
                 limit=request.limit,
-                filters=request.filters.model_dump(exclude_none=True),
+                filters=filters,
                 query_embedding=request.query_embedding,
             )
         )
@@ -223,6 +245,34 @@ def _log_search(
         result_count,
         elapsed_ms,
     )
+
+
+def _filters_with_repo(
+    filters: dict[str, Any],
+    *,
+    default_repo: str | None,
+    require_repo_filter: bool,
+) -> dict[str, Any]:
+    resolved = dict(filters)
+    if not resolved.get("repo") and default_repo:
+        resolved["repo"] = default_repo
+    if require_repo_filter and not resolved.get("repo"):
+        raise ValueError("repo filter is required")
+    return resolved
+
+
+def _constraints_with_repo(
+    constraints: dict[str, Any],
+    *,
+    default_repo: str | None,
+    require_repo_filter: bool,
+) -> dict[str, Any]:
+    resolved = dict(constraints)
+    if not resolved.get("repo") and default_repo:
+        resolved["repo"] = default_repo
+    if require_repo_filter and not resolved.get("repo"):
+        raise ValueError("repo constraint is required")
+    return resolved
 
 
 def _dump_results(results: list[SearchResult]) -> list[dict[str, Any]]:

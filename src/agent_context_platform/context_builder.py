@@ -24,6 +24,9 @@ class TaskContextBuilder:
         code_filters: dict[str, Any] = {}
         if constraints.get("language"):
             code_filters["language"] = constraints["language"]
+        repo_filter: dict[str, Any] = {}
+        if constraints.get("repo"):
+            repo_filter["repo"] = constraints["repo"]
 
         # 代码、DB、文档分开搜，避免一种资产的高分结果挤掉其他必要上下文。
         related_code = self.search_service.search(
@@ -31,7 +34,7 @@ class TaskContextBuilder:
                 query=task,
                 asset_type=AssetType.CODE,
                 limit=limits.get("code", 8),
-                filters=code_filters,
+                filters={**repo_filter, **code_filters},
             )
         )
         related_db_schema = self.search_service.search(
@@ -39,6 +42,7 @@ class TaskContextBuilder:
                 query=task,
                 asset_type=AssetType.DB_SCHEMA,
                 limit=limits.get("db_schema", 5),
+                filters=repo_filter,
             )
         )
         related_docs = self.search_service.search(
@@ -46,6 +50,7 @@ class TaskContextBuilder:
                 query=task,
                 asset_type=AssetType.DOC,
                 limit=limits.get("docs", 5),
+                filters=repo_filter,
             )
         )
         similar_implementations = self.search_service.search(
@@ -53,7 +58,7 @@ class TaskContextBuilder:
                 query=task,
                 asset_type=AssetType.CODE,
                 limit=limits.get("similar_implementations", 5),
-                filters={**code_filters, "symbol_type": ["method", "class"]},
+                filters={**repo_filter, **code_filters, "symbol_type": ["method", "class"]},
             )
         )
 

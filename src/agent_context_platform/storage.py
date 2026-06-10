@@ -9,10 +9,11 @@ from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
-    ForeignKey,
+    ForeignKeyConstraint,
     JSON,
     String,
     Text,
+    and_,
     create_engine,
     func,
     or_,
@@ -54,7 +55,7 @@ class IndexedItemRecord(Base):
     )
 
     source_type: Mapped[str] = mapped_column(String(32), index=True)
-    repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    repo: Mapped[str] = mapped_column(String(255), primary_key=True)
     branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -147,6 +148,11 @@ class ItemEmbeddingRecord(Base):
 
     __tablename__ = "item_embeddings"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["repo", "item_id"],
+            ["indexed_items.repo", "indexed_items.id"],
+            ondelete="CASCADE",
+        ),
         CheckConstraint("dimension > 0", name="ck_item_embeddings_dimension_positive"),
         CheckConstraint(
             "embedding IS NULL OR vector_dims(embedding) = dimension",
@@ -154,11 +160,8 @@ class ItemEmbeddingRecord(Base):
         ).ddl_if(dialect="postgresql"),
     )
 
-    item_id: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("indexed_items.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
+    repo: Mapped[str] = mapped_column(String(255), primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     provider: Mapped[str] = mapped_column(String(64), primary_key=True)
     model: Mapped[str] = mapped_column(String(255), primary_key=True)
     dimension: Mapped[int] = mapped_column(primary_key=True)
@@ -176,6 +179,8 @@ class IndexedItemRepository:
         embedding: Sequence[float] | None = None,
         embedding_identity: EmbeddingIdentity | None = None,
     ) -> IndexedItem:
+        if not item.source.repo:
+            raise ValueError("indexed item source.repo is required for persistence")
         # 先写基础资产，再写 embedding；这样没有向量时也能完成 keyword/RAG 基础检索。
         record = IndexedItemRecord.from_indexed_item(item)
         self.session.merge(record)
@@ -185,6 +190,7 @@ class IndexedItemRepository:
             _validate_embedding_dimension(embedding, identity)
             self.session.merge(
                 ItemEmbeddingRecord(
+                    repo=record.repo,
                     item_id=item.id,
                     provider=identity.provider,
                     model=identity.model,
@@ -195,13 +201,22 @@ class IndexedItemRepository:
             self.session.flush()
         return record.to_indexed_item()
 
-    def get(self, item_id: str) -> IndexedItem | None:
-        record = self.session.get(IndexedItemRecord, item_id)
+    def get(self, item_id: str, *, repo: str | None = None) -> IndexedItem | None:
+        if repo is not None:
+            record = self.session.get(IndexedItemRecord, {"repo": repo, "id": item_id})
+            return record.to_indexed_item() if record else None
+        statement = (
+            select(IndexedItemRecord)
+            .where(IndexedItemRecord.id == item_id)
+            .order_by(IndexedItemRecord.repo)
+        )
+        record = self.session.scalars(statement).first()
         return record.to_indexed_item() if record else None
 
     def list(
         self,
         *,
+        repo: str | None = None,
         asset_type: AssetType | None = None,
         path: str | None = None,
         language: str | None = None,
@@ -209,6 +224,8 @@ class IndexedItemRepository:
         table: str | None = None,
     ) -> list[IndexedItem]:
         statement = select(IndexedItemRecord)
+        if repo is not None:
+            statement = statement.where(IndexedItemRecord.repo == repo)
         if asset_type is not None:
             statement = statement.where(IndexedItemRecord.asset_type == asset_type.value)
         if path is not None:
@@ -226,6 +243,7 @@ class IndexedItemRepository:
     def list_with_embeddings(
         self,
         *,
+        repo: str | None = None,
         asset_type: AssetType | None = None,
         path_prefix: str | None = None,
         language: str | None = None,
@@ -235,6 +253,8 @@ class IndexedItemRepository:
     ) -> list[tuple[IndexedItem, list[float] | None]]:
         # 检索层需要同时拿到模型对象和对应模型的 embedding，避免跨模型维度误比较。
         statement = select(IndexedItemRecord)
+        if repo is not None:
+            statement = statement.where(IndexedItemRecord.repo == repo)
         if asset_type is not None:
             statement = statement.where(IndexedItemRecord.asset_type == asset_type.value)
         if path_prefix is not None:
@@ -250,18 +270,20 @@ class IndexedItemRepository:
         return [
             (
                 record.to_indexed_item(),
-                self._find_embedding(record.id, embedding_identity),
+                self._find_embedding(record.repo, record.id, embedding_identity),
             )
             for record in records
         ]
 
     def _find_embedding(
         self,
+        repo: str,
         item_id: str,
         embedding_identity: EmbeddingIdentity | None,
     ) -> list[float] | None:
         statement = select(ItemEmbeddingRecord).where(
-            ItemEmbeddingRecord.item_id == item_id
+            ItemEmbeddingRecord.repo == repo,
+            ItemEmbeddingRecord.item_id == item_id,
         )
         if embedding_identity is not None:
             statement = statement.where(
@@ -280,6 +302,7 @@ class IndexedItemRepository:
     def list_keyword_candidates(
         self,
         *,
+        repo: str | None = None,
         asset_type: AssetType | None = None,
         path_prefix: str | None = None,
         language: str | None = None,
@@ -294,6 +317,7 @@ class IndexedItemRepository:
         # keyword 召回先用结构化过滤缩小范围，再做 LIKE；这是 grep-like 检索进入 RAG 的位置。
         statement = _apply_item_filters(
             select(IndexedItemRecord),
+            repo=repo,
             asset_type=asset_type,
             path_prefix=path_prefix,
             language=language,
@@ -323,6 +347,7 @@ class IndexedItemRepository:
     def search_by_vector(
         self,
         *,
+        repo: str | None = None,
         asset_type: AssetType | None = None,
         path_prefix: str | None = None,
         language: str | None = None,
@@ -341,6 +366,7 @@ class IndexedItemRepository:
             # 真实检索路径使用数据库侧 pgvector 排序，避免把全量向量拉回 Python。
             statement = build_pgvector_search_statement(
                 asset_type=asset_type,
+                repo=repo,
                 path_prefix=path_prefix,
                 language=language,
                 symbol_types=symbol_types,
@@ -358,6 +384,7 @@ class IndexedItemRepository:
         # SQLite 没有 pgvector 算子，测试路径退回 Python cosine，便于单元测试不依赖 PostgreSQL。
         candidates = self.list_with_embeddings(
             asset_type=asset_type,
+            repo=repo,
             path_prefix=path_prefix,
             language=language,
             symbol_types=symbol_types,
@@ -395,6 +422,7 @@ def _validate_embedding_dimension(
 
 def build_pgvector_search_statement(
     *,
+    repo: str | None = None,
     asset_type: AssetType | None = None,
     path_prefix: str | None = None,
     language: str | None = None,
@@ -409,10 +437,15 @@ def build_pgvector_search_statement(
         "distance"
     )
     statement = select(IndexedItemRecord, distance).join(
-        ItemEmbeddingRecord, ItemEmbeddingRecord.item_id == IndexedItemRecord.id
+        ItemEmbeddingRecord,
+        and_(
+            ItemEmbeddingRecord.repo == IndexedItemRecord.repo,
+            ItemEmbeddingRecord.item_id == IndexedItemRecord.id,
+        ),
     )
     statement = _apply_item_filters(
         statement,
+        repo=repo,
         asset_type=asset_type,
         path_prefix=path_prefix,
         language=language,
@@ -431,12 +464,15 @@ def build_pgvector_search_statement(
 def _apply_item_filters(
     statement,
     *,
+    repo: str | None,
     asset_type: AssetType | None,
     path_prefix: str | None,
     language: str | None,
     symbol_types: Sequence[str] | None,
     table: str | None,
 ):
+    if repo is not None:
+        statement = statement.where(IndexedItemRecord.repo == repo)
     if asset_type is not None:
         statement = statement.where(IndexedItemRecord.asset_type == asset_type.value)
     if path_prefix is not None:

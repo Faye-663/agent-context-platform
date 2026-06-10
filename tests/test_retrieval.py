@@ -42,6 +42,7 @@ def make_service() -> HybridSearchService:
             "build payment message from order data",
             SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/PaymentMessageBuilder.java",
                 start_line=10,
                 end_line=30,
@@ -59,6 +60,7 @@ def make_service() -> HybridSearchService:
             "print invoice document",
             SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/InvoicePrinter.java",
                 start_line=5,
                 end_line=18,
@@ -74,7 +76,11 @@ def make_service() -> HybridSearchService:
             AssetType.DB_SCHEMA,
             "payment_order",
             "payment order status amount",
-            SourceCitation(source_type=SourceType.DB_SCHEMA, table="payment_order"),
+            SourceCitation(
+                source_type=SourceType.DB_SCHEMA,
+                repo="gitlab.example.com/payments/payment-service",
+                table="payment_order",
+            ),
             {"symbol_type": "table", "table": "payment_order"},
         ),
         embedding=[1.0, 0.0, 0.0],
@@ -87,6 +93,7 @@ def make_service() -> HybridSearchService:
             "payment integration message generation",
             SourceCitation(
                 source_type=SourceType.DOC,
+                repo="gitlab.example.com/payments/payment-service",
                 path="docs/payment.md",
                 start_line=1,
                 end_line=8,
@@ -146,6 +153,57 @@ def test_hybrid_search_keeps_structured_filters_inside_requested_asset_type() ->
     assert schema_results[0].item.source.table == "payment_order"
 
 
+def test_hybrid_search_filters_candidates_by_repo() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+
+    for repo, path, line_start in [
+        (
+            "gitlab.example.com/payments/payment-service",
+            "src/main/java/example/PaymentMessageBuilder.java",
+            10,
+        ),
+        (
+            "gitlab.example.com/orders/order-service",
+            "src/main/java/example/PaymentMessageBuilder.java",
+            50,
+        ),
+    ]:
+        repository.save(
+            make_item(
+                "code:src/main/java/example/PaymentMessageBuilder.java:PaymentMessageBuilder.build",
+                AssetType.CODE,
+                "PaymentMessageBuilder.build",
+                "build payment message from order data",
+                SourceCitation(
+                    source_type=SourceType.CODE,
+                    repo=repo,
+                    path=path,
+                    start_line=line_start,
+                    end_line=line_start + 10,
+                    symbol="PaymentMessageBuilder.build",
+                ),
+                {"language": "java", "symbol_type": "method"},
+            )
+        )
+    session.commit()
+
+    service = HybridSearchService(repository)
+    results = service.search(
+        HybridSearchQuery(
+            query="payment message",
+            asset_type=AssetType.CODE,
+            filters={"repo": "gitlab.example.com/orders/order-service"},
+        )
+    )
+
+    assert [result.source.repo for result in results] == [
+        "gitlab.example.com/orders/order-service"
+    ]
+
+
 def test_hybrid_search_combines_vector_similarity_with_keyword_score() -> None:
     service = make_service()
 
@@ -178,6 +236,7 @@ def test_hybrid_search_merges_bounded_keyword_and_vector_candidates() -> None:
             "rare payment keyword implementation",
             SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/KeywordOnlyService.java",
                 start_line=1,
                 end_line=12,
@@ -194,6 +253,7 @@ def test_hybrid_search_merges_bounded_keyword_and_vector_candidates() -> None:
             "invoice document",
             SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/VectorOnlyService.java",
                 start_line=1,
                 end_line=12,
@@ -250,6 +310,7 @@ def test_hybrid_search_generates_query_embedding_with_query_mode() -> None:
             "invoice document",
             SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/VectorOnlyService.java",
                 start_line=1,
                 end_line=12,

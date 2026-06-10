@@ -349,7 +349,8 @@ def create_mcp_server(
         不适用：实时读取文件、检索非 Java 资产、写数据库，或在项目尚未索引时
         把结果当成完整工程事实。
         输入建议：`query` 使用具体功能、symbol、错误、行为或实现模式；仅当任务
-        已明确范围时才用 `filters` 限定 `language`、`symbol_type` 或 `path_prefix`；
+        已明确范围时才用 `filters` 限定 `repo`、`language`、`symbol_type`
+        或 `path_prefix`；
         follow-up 检索时保持较小 `limit`。
         输出使用：基于返回的 source citation、`match_reason` 和 score 判断结果是否
         足够相关，再引用或采纳。
