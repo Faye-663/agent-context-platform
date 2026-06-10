@@ -75,6 +75,8 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 - `SearchResult` 表示一次检索命中。
 - `TaskContext` 表示给 Agent 的任务上下文包。
 
+`SourceCitation` 除了 repo、path、line range、symbol/table/heading 等定位字段，还保存索引来源 provenance：best-effort Git branch / commit、文件 SHA-256、索引时间和索引批次 ID。非 Git 目录或无法读取 Git 信息时，branch / commit 允许为空，索引流程继续执行。
+
 模型强制约束：
 
 - `asset_type` 必须与 `source.source_type` 一致。
@@ -101,12 +103,15 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 - 递归扫描 `--root`。
 - 应用 include/exclude。
 - 使用根目录名或 `--repo` 生成 repo 标识。
+- 生成本次运行的索引批次 ID 和索引时间。
+- best-effort 读取 `--root` 的 Git branch / commit；读取失败时记录 provenance warning，不阻断索引。
+- 按原始文件 bytes 计算 SHA-256，写入每条来源引用。
 - 调用 Java、SQL、Markdown indexer。
 - 在 `--dry-run` 时只输出扫描和预计索引摘要。
 - 在非 `dry-run` 时复用 `ACP_DATABASE_URL` 写库。
 - 仅在 `--with-embedding` 时调用外部 provider 并写入 embedding。
 
-CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`elapsed_seconds` 和 `failures`。
+CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id`、`provenance_warnings`、`elapsed_seconds` 和 `failures`。
 
 ## MCP 接入
 
