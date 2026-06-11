@@ -27,10 +27,12 @@ from agent_context_platform.embeddings import (
 )
 from agent_context_platform.indexers import (
     index_java_source,
+    index_java_symbols,
     index_markdown_document,
     index_sql_ddl,
+    index_sql_symbols,
 )
-from agent_context_platform.models import IndexedItem
+from agent_context_platform.models import IndexedItem, SymbolCatalogEntry
 from agent_context_platform.runtime import (
     RuntimeConfigError,
     RuntimeSettings,
@@ -71,6 +73,7 @@ class IndexedFile:
     path: str
     file_hash: str
     items: list[IndexedItem]
+    symbols: list[SymbolCatalogEntry]
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,7 @@ class IncrementalPlan:
     unchanged_paths: list[str]
     deleted_paths: list[str]
     items_deleted: int
+    symbols_deleted: int = 0
 
 
 def main() -> None:
@@ -136,6 +140,7 @@ def run(
                 incremental_plan=IncrementalPlan([], [], [], 0),
                 scope_paths=[],
                 items_written=0,
+                symbols_written=0,
                 embedding_written=0,
                 failures=failures,
                 provenance=provenance,
@@ -183,6 +188,7 @@ def run(
                 incremental_plan=incremental_plan,
                 scope_paths=scope.summary_paths,
                 items_written=0,
+                symbols_written=0,
                 embedding_written=0,
                 failures=failures,
                 provenance=provenance,
@@ -192,6 +198,7 @@ def run(
         return 1 if failures else 0
 
     incremental_plan = IncrementalPlan([], [], [], 0)
+    symbols_written = 0
     try:
         settings = _load_cli_settings(values, with_embedding=args.with_embedding)
         database = _redact_database_url(settings.database_url)
@@ -200,7 +207,7 @@ def run(
             with_embedding=args.with_embedding,
             provider_factory=embedding_provider_factory,
         )
-        incremental_plan, items_written, embedding_written = _write_items(
+        incremental_plan, items_written, symbols_written, embedding_written = _write_items(
             settings=settings,
             repo=repo,
             scope=scope,
@@ -213,14 +220,17 @@ def run(
     except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
         failures.append(Failure(path=None, stage="embedding", error=str(exc)))
         items_written = 0
+        symbols_written = 0
         embedding_written = 0
     except (RuntimeConfigError, ValueError) as exc:
         failures.append(Failure(path=None, stage="config", error=str(exc)))
         items_written = 0
+        symbols_written = 0
         embedding_written = 0
     except SQLAlchemyError as exc:
         failures.append(Failure(path=None, stage="database", error=str(exc)))
         items_written = 0
+        symbols_written = 0
         embedding_written = 0
 
     _write_summary(
@@ -233,6 +243,7 @@ def run(
             incremental_plan=incremental_plan,
             scope_paths=scope.summary_paths,
             items_written=items_written,
+            symbols_written=symbols_written,
             embedding_written=embedding_written,
             failures=failures,
             provenance=provenance,
@@ -407,6 +418,12 @@ def _index_files(
 
         try:
             items = _index_content(relative_path, content, repo)
+            symbols = _index_symbols_content(
+                relative_path,
+                content,
+                repo,
+                indexed_items=items,
+            )
         except Exception as exc:  # noqa: BLE001 - CLI must keep indexing other files.
             failures.append(Failure(path=relative_path, stage="index", error=str(exc)))
             continue
@@ -421,7 +438,23 @@ def _index_files(
                 )
                 for item in items
             ]
-        indexed_files.append(IndexedFile(path=relative_path, file_hash=file_hash, items=items))
+        if symbols:
+            symbols = [
+                _with_symbol_provenance(
+                    symbol,
+                    provenance=provenance,
+                    file_hash=file_hash,
+                )
+                for symbol in symbols
+            ]
+        indexed_files.append(
+            IndexedFile(
+                path=relative_path,
+                file_hash=file_hash,
+                items=items,
+                symbols=symbols,
+            )
+        )
     return indexed_files
 
 
@@ -433,6 +466,21 @@ def _index_content(path: str, content: str, repo: str) -> list[IndexedItem]:
         return index_sql_ddl(path, content, repo=repo)
     if suffix == ".md":
         return index_markdown_document(path, content, repo=repo)
+    return []
+
+
+def _index_symbols_content(
+    path: str,
+    content: str,
+    repo: str,
+    *,
+    indexed_items: list[IndexedItem],
+) -> list[SymbolCatalogEntry]:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".java":
+        return index_java_symbols(path, content, repo=repo, indexed_items=indexed_items)
+    if suffix == ".sql":
+        return index_sql_symbols(path, content, repo=repo, indexed_items=indexed_items)
     return []
 
 
@@ -479,7 +527,7 @@ def _write_items(
     indexed_files: Sequence[IndexedFile],
     failures: Sequence[Failure],
     embedding_provider: EmbeddingProvider | None,
-) -> tuple[IncrementalPlan, int, int]:
+) -> tuple[IncrementalPlan, int, int, int]:
     engine = make_engine(settings.database_url, echo=settings.sql_echo)
     if engine.dialect.name == "sqlite":
         Base.metadata.create_all(engine)
@@ -497,13 +545,20 @@ def _write_items(
                 failures=failures,
             )
             for path in incremental_plan.deleted_paths:
+                repository.delete_symbols_by_path(repo=repo, path=path)
                 repository.delete_by_path(repo=repo, path=path)
             items = [
                 item
                 for indexed_file in incremental_plan.changed_files
                 for item in indexed_file.items
             ]
+            symbols = [
+                symbol
+                for indexed_file in incremental_plan.changed_files
+                for symbol in indexed_file.symbols
+            ]
             for indexed_file in incremental_plan.changed_files:
+                repository.delete_symbols_by_path(repo=repo, path=indexed_file.path)
                 repository.delete_by_path(repo=repo, path=indexed_file.path)
             if embedding_provider is None:
                 for item in items:
@@ -511,11 +566,12 @@ def _write_items(
                 embedding_written = 0
             else:
                 embedding_written = embed_and_save_items(repository, embedding_provider, items)
+            symbols_written = repository.save_symbols(symbols)
             session.commit()
         except Exception:
             session.rollback()
             raise
-    return incremental_plan, len(items), embedding_written
+    return incremental_plan, len(items), symbols_written, embedding_written
 
 
 def _preview_incremental_plan(
@@ -600,11 +656,16 @@ def _plan_incremental_changes(
     items_deleted = sum(
         len(repository.list(repo=repo, path=deleted_path)) for deleted_path in deleted_paths
     )
+    symbols_deleted = sum(
+        len(repository.list_symbols(repo=repo, path=deleted_path))
+        for deleted_path in deleted_paths
+    )
     return IncrementalPlan(
         changed_files=changed_files,
         unchanged_paths=sorted(unchanged_paths),
         deleted_paths=deleted_paths,
         items_deleted=items_deleted,
+        symbols_deleted=symbols_deleted,
     )
 
 
@@ -635,12 +696,14 @@ def _summary(
     incremental_plan: IncrementalPlan,
     scope_paths: Sequence[str],
     items_written: int,
+    symbols_written: int,
     embedding_written: int,
     failures: Sequence[Failure],
     provenance: IndexRunProvenance,
     started: float,
 ) -> dict[str, Any]:
     items_estimated = sum(len(indexed_file.items) for indexed_file in indexed_files)
+    symbols_estimated = sum(len(indexed_file.symbols) for indexed_file in indexed_files)
     return {
         "repo": repo,
         "database": database,
@@ -651,8 +714,11 @@ def _summary(
         "files_unchanged": len(incremental_plan.unchanged_paths),
         "files_deleted": len(incremental_plan.deleted_paths),
         "items_estimated": items_estimated,
+        "symbols_estimated": symbols_estimated,
         "items_written": items_written,
+        "symbols_written": symbols_written,
         "items_deleted": incremental_plan.items_deleted,
+        "symbols_deleted": incremental_plan.symbols_deleted,
         "items_failed": len(failures),
         "embedding_written": embedding_written,
         "branch": provenance.branch,
@@ -748,6 +814,23 @@ def _with_source_provenance(
         }
     )
     return item.model_copy(update={"source": source})
+
+
+def _with_symbol_provenance(
+    symbol: SymbolCatalogEntry,
+    *,
+    provenance: IndexRunProvenance,
+    file_hash: str,
+) -> SymbolCatalogEntry:
+    return symbol.model_copy(
+        update={
+            "branch": provenance.branch,
+            "commit_sha": provenance.commit_sha,
+            "file_hash": file_hash,
+            "indexed_at": provenance.indexed_at,
+            "index_batch_id": provenance.index_batch_id,
+        }
+    )
 
 
 def _sha256_bytes(content: bytes) -> str:

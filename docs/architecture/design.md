@@ -28,7 +28,7 @@ Index CLI
 Java / SQL / Markdown Indexers
     |
     v
-IndexedItemRepository + optional EmbeddingProvider
+IndexedItemRepository + Symbol Catalog + optional EmbeddingProvider
 ```
 
 ## 入口
@@ -74,6 +74,7 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 - `SourceCitation` 表示来源坐标。
 - `SearchResult` 表示一次检索命中。
 - `TaskContext` 表示给 Agent 的任务上下文包。
+- `SymbolCatalogEntry` 表示 Java / SQL declaration symbol，用于后续 symbol recall 和 code graph 节点身份。
 
 `SourceCitation` 除了 repo、path、line range、symbol/table/heading 等定位字段，还保存索引来源 provenance：best-effort Git branch / commit、文件 SHA-256、索引时间和索引批次 ID。当前 `repo` 用作 GitLab code repo identity 和 multi code repo 共库隔离键；非 Git 目录或无法读取 Git 信息时，branch / commit 允许为空，索引流程继续执行。
 
@@ -93,8 +94,11 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 
 - `indexed_items`：工程资产、结构化 metadata 和来源字段；存储身份为 `(repo, id)`。
 - `item_embeddings`：按 `repo`、item id、provider、model、dimension 和 task identity 保存 embedding。
+- `symbols`：按 `(repo, symbol_id)` 保存 Java / SQL symbol definitions；`source_item_id` 指向同 repo 下可展示或可检索的 `IndexedItem`。
 
 查询和写入必须使用匹配的 embedding identity，避免不同向量空间混用。
+
+symbol catalog 只保存 definitions，不保存 method call、field access、type reference、extends / implements 等 graph edge。当前 repository 提供 exact / prefix lookup，fuzzy、RRF、trace 和 ranking 属于检索层后续任务。
 
 检索可以通过 `repo` filter 限定候选集。未传 repo 时保持兼容的跨 repo 搜索；如果运行时开启 `ACP_REQUIRE_REPO_FILTER`，请求必须携带 repo 或由 `ACP_DEFAULT_REPO` 注入。
 
@@ -109,13 +113,14 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 - best-effort 读取 `--root` 的 Git branch / commit；读取失败时记录 provenance warning，不阻断索引。
 - 按原始文件 bytes 计算 SHA-256，写入每条来源引用。
 - 调用 Java、SQL、Markdown indexer。
+- 为 Java class / interface / enum / record / annotation type / method / constructor / field，以及 SQL table / column 写入 symbol catalog。
 - 使用已存 file hash 判断 changed / unchanged；hash 未变化的文件不重写 item 或 embedding。
-- 清理同 repo、同 scope 且符合 include/exclude 的旧索引；删除文件或移动文件时，调用方需要传入覆盖旧 path 的 scope，否则旧 path 不会被清理。读取或解析失败的文件保留旧索引。
+- 清理同 repo、同 scope 且符合 include/exclude 的旧索引和旧 symbols；删除文件或移动文件时，调用方需要传入覆盖旧 path 的 scope，否则旧 path 不会被清理。读取或解析失败的文件保留旧索引。
 - 在 `--dry-run` 时只输出扫描和预计索引摘要，不写入或删除数据库记录。
 - 在非 `dry-run` 时复用 `ACP_DATABASE_URL` 写库。
 - 仅在 `--with-embedding` 时调用外部 provider 并写入 embedding。
 
-CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`scope_paths`、`files_scanned`、`files_indexed`、`files_changed`、`files_unchanged`、`files_deleted`、`items_estimated`、`items_written`、`items_deleted`、`items_failed`、`embedding_written`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id`、`provenance_warnings`、`elapsed_seconds` 和 `failures`。
+CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`scope_paths`、`files_scanned`、`files_indexed`、`files_changed`、`files_unchanged`、`files_deleted`、`items_estimated`、`symbols_estimated`、`items_written`、`symbols_written`、`items_deleted`、`symbols_deleted`、`items_failed`、`embedding_written`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id`、`provenance_warnings`、`elapsed_seconds` 和 `failures`。
 
 ## MCP 接入
 

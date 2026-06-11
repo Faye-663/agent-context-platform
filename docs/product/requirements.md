@@ -25,6 +25,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - PostgreSQL / pgvector 存储，SQLite 保留为测试路径。
 - 索引来源 provenance：repo、best-effort branch / commit、file hash、index time 和 index batch。
 - Multi code repo 共库隔离：indexed item 和 embedding 按 repo 隔离，检索支持 repo filter。
+- Symbol catalog：Java / SQL symbol definitions 按 repo 隔离保存，为 symbol recall 和 code graph 铺底。
 - 关键词、向量和结构化过滤组合的 Hybrid Search。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
@@ -53,7 +54,8 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - `--root` 表示本机扫描根目录，允许在不同电脑或不同 checkout 目录变化；生产索引应显式传入稳定的 GitLab code repo 标识 `--repo`，不能依赖本地目录名表达多仓隔离。
 - `--path` 表示相对 `--root` 的 repo 内文件或目录 scope；跨机器脚本应使用相对路径，不应把本机绝对路径作为长期配置。
 - `acp-index` 必须为成功索引的 item 写入 file hash、index time 和 index batch；Git branch / commit 以 best-effort 方式采集，采集失败不得阻断非 Git 样本或普通索引。
-- `acp-index --path` 必须只清理同 repo、同 scope 且符合 include/exclude 的旧索引；失败文件保留旧索引，避免解析偶发失败导致证据丢失。
+- `acp-index` 必须为 Java class / interface / enum / record / annotation type / method / constructor / field，以及 SQL table / column 写入独立 symbol catalog；catalog 只记录 definitions，不记录 graph edges。
+- `acp-index --path` 必须只清理同 repo、同 scope 且符合 include/exclude 的旧索引和旧 symbols；失败文件保留旧索引，避免解析偶发失败导致证据丢失。
 - `acp-index` 默认不调用外部 embedding provider；只有显式传入 `--with-embedding` 才写入 embedding。
 - Alembic 和 `acp-index` 只读取当前进程环境变量，不自动加载 `.env`。
 

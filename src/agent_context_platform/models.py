@@ -118,6 +118,45 @@ class IndexedItem(BaseModel):
         return self
 
 
+class SymbolCatalogEntry(BaseModel):
+    """代码/结构化资产中的 symbol definition。
+
+    这是给 symbol recall 和后续 code graph 使用的稳定 catalog 入口；
+    不记录 method call、field access 或 type reference 这类 graph edge。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # symbol_id 在同一个 repo 内稳定唯一，后续 graph edge 通过它引用 symbol。
+    symbol_id: str = Field(min_length=1)
+    # repo 是多仓隔离键，必须和 indexed_items.repo 使用同一 identity。
+    repo: str = Field(min_length=1)
+    # path 是仓库内相对路径，便于增量索引按文件清理 catalog。
+    path: str = Field(min_length=1)
+    language: str | None = None
+    # kind 只表达 declaration 类型，例如 class/method/table/column。
+    kind: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    qualified_name: str = Field(min_length=1)
+    start_line: int | None = Field(default=None, ge=1)
+    end_line: int | None = Field(default=None, ge=1)
+    # source_item_id 指向可展示/可检索的 IndexedItem；字段、构造器等可指向所属类型 item。
+    source_item_id: str | None = None
+    branch: str | None = None
+    commit_sha: str | None = None
+    file_hash: str | None = None
+    indexed_at: datetime | None = None
+    index_batch_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_line_range(self) -> "SymbolCatalogEntry":
+        # symbol range 用于后续 graph/debug 定位；如果两端都存在，必须保持合法范围。
+        if self.start_line is not None and self.end_line is not None:
+            if self.end_line < self.start_line:
+                raise ValueError("end_line must be greater than or equal to start_line")
+        return self
+
+
 class SearchResult(BaseModel):
     """一次检索命中的返回项。
 

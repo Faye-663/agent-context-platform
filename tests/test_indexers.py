@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 
 from agent_context_platform.indexers import (
     index_java_source,
+    index_java_symbols,
     index_markdown_document,
     index_sql_ddl,
+    index_sql_symbols,
 )
 from agent_context_platform.models import AssetType, SourceType
 from agent_context_platform.storage import Base, IndexedItemRepository
@@ -19,6 +21,37 @@ public class PaymentMessageBuilder {
     @Trace
     public String build(PaymentRequest request) {
         return "ok";
+    }
+}
+"""
+
+JAVA_SYMBOL_SAMPLE = """package example;
+
+interface PaymentHandler {
+    String handle(PaymentRequest request);
+}
+
+enum PaymentStatus {
+    CREATED, PAID
+}
+
+@interface Audited {
+    String value();
+}
+
+record PaymentRecord(String id) {
+    PaymentRecord {
+    }
+}
+
+class PaymentService {
+    private String status;
+
+    PaymentService() {
+    }
+
+    String build(PaymentRequest request) {
+        return status;
     }
 }
 """
@@ -76,6 +109,44 @@ def test_java_indexer_extracts_class_method_annotations_signature_and_lines() ->
     assert method_item.source.symbol == "PaymentMessageBuilder.build"
 
 
+def test_java_symbol_catalog_extracts_graph_foundation_declarations() -> None:
+    symbols = index_java_symbols(
+        path="src/main/java/example/PaymentService.java",
+        content=JAVA_SYMBOL_SAMPLE,
+        repo="gitlab.example.com/payments/payment-service",
+    )
+
+    by_kind_name = {(symbol.kind, symbol.name): symbol for symbol in symbols}
+
+    assert by_kind_name[("interface", "PaymentHandler")].qualified_name == (
+        "example.PaymentHandler"
+    )
+    assert by_kind_name[("method", "handle")].qualified_name == (
+        "example.PaymentHandler.handle(PaymentRequest)"
+    )
+    assert by_kind_name[("enum", "PaymentStatus")].qualified_name == (
+        "example.PaymentStatus"
+    )
+    assert by_kind_name[("annotation_type", "Audited")].qualified_name == (
+        "example.Audited"
+    )
+    assert by_kind_name[("record", "PaymentRecord")].qualified_name == (
+        "example.PaymentRecord"
+    )
+    assert by_kind_name[("constructor", "PaymentService")].qualified_name == (
+        "example.PaymentService.<init>()"
+    )
+    assert by_kind_name[("field", "status")].qualified_name == (
+        "example.PaymentService.status"
+    )
+    assert by_kind_name[("method", "build")].qualified_name == (
+        "example.PaymentService.build(PaymentRequest)"
+    )
+    assert all(symbol.repo == "gitlab.example.com/payments/payment-service" for symbol in symbols)
+    assert all(symbol.path == "src/main/java/example/PaymentService.java" for symbol in symbols)
+    assert all(symbol.symbol_id.startswith("java:") for symbol in symbols)
+
+
 def test_sql_indexer_extracts_table_columns_indexes_and_source() -> None:
     items = index_sql_ddl(path="schema/payment.sql", content=SQL_SAMPLE)
 
@@ -96,6 +167,22 @@ def test_sql_indexer_extracts_table_columns_indexes_and_source() -> None:
     assert status_column.metadata["data_type"] == "VARCHAR(32)"
     assert status_column.source.table == "payment_order"
     assert status_column.source.column == "status"
+
+
+def test_sql_symbol_catalog_extracts_table_and_columns() -> None:
+    symbols = index_sql_symbols(
+        path="schema/payment.sql",
+        content=SQL_SAMPLE,
+        repo="gitlab.example.com/payments/payment-service",
+    )
+
+    by_qualified_name = {symbol.qualified_name: symbol for symbol in symbols}
+
+    assert by_qualified_name["payment_order"].kind == "table"
+    assert by_qualified_name["payment_order.status"].kind == "column"
+    assert by_qualified_name["payment_order.status"].symbol_id == (
+        "sql:column:payment_order.status"
+    )
 
 
 def test_markdown_indexer_extracts_heading_path_body_and_lines() -> None:

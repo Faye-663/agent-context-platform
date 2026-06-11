@@ -10,11 +10,12 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 
 当前已实现能力：
 
-- 公共 Pydantic 模型：`IndexedItem`、`SourceCitation`、`SearchResult`、`TaskContext`。
+- 公共 Pydantic 模型：`IndexedItem`、`SourceCitation`、`SearchResult`、`TaskContext`、`SymbolCatalogEntry`。
 - Java、SQL DDL、Markdown 离线索引器。
 - SQLAlchemy repository、Alembic 迁移、PostgreSQL / pgvector 存储。
 - 索引来源 provenance：`acp-index` 写入 repo、best-effort branch / commit、file hash、index time 和 index batch。
 - Multi code repo 共库隔离：`repo + id` 作为存储身份，检索支持 repo filter。
+- Symbol catalog：`symbols` 按 repo 隔离保存 Java / SQL symbol definitions，供后续 symbol recall 和 code graph 消费。
 - Hybrid Search：关键词、向量、结构化过滤、有界合并和统一 `SearchResult`。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
@@ -207,9 +208,9 @@ Agent 基于 source citation 继续设计、修改或 Review
 
 MCP server 是 Context API 的包装层。它依赖可访问的 HTTP 服务，不直接访问 repository、SQLAlchemy session 或数据库。
 
-真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、`--path` 手动增量索引、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；摘要包含 `scope_paths`、`files_changed`、`files_unchanged`、`files_deleted`、`items_deleted`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
+真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、`--path` 手动增量索引、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；摘要包含 `scope_paths`、`files_changed`、`files_unchanged`、`files_deleted`、`items_deleted`、`symbols_deleted`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
 
-同一数据库可以保存多个 GitLab code repo 的索引；`indexed_items` 和 `item_embeddings` 都按 repo 隔离。升级到 repo-scoped identity 后，历史索引数据需要重新执行 `acp-index` 重建，不做旧数据归属猜测。
+同一数据库可以保存多个 GitLab code repo 的索引；`indexed_items`、`item_embeddings` 和 `symbols` 都按 repo 隔离。升级到 repo-scoped identity 或 symbol catalog schema 后，历史索引数据需要重新执行 `acp-index` 重建，不做旧数据归属猜测。
 
 MCP JSONL 调试日志默认关闭。开启 `ACP_MCP_LOG_FILE` 后，日志记录 FastMCP 完成 schema 解析后的 tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；它不抓 raw JSON-RPC wire frame。只有 `ACP_MCP_LOG_PAYLOADS=true` 时才写完整 payload。
 

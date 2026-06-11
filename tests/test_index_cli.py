@@ -52,7 +52,9 @@ def test_dry_run_scans_indexable_files_without_database_write(tmp_path: Path) ->
     assert summary["files_scanned"] == 3
     assert summary["files_indexed"] == 3
     assert summary["items_estimated"] == 7
+    assert summary["symbols_estimated"] == 5
     assert summary["items_written"] == 0
+    assert summary["symbols_written"] == 0
     assert summary["items_failed"] == 0
     assert summary["embedding_written"] == 0
     assert summary["index_batch_id"]
@@ -81,6 +83,7 @@ def test_index_cli_writes_scanned_items_to_configured_database(tmp_path: Path) -
     assert summary["files_scanned"] == 3
     assert summary["files_indexed"] == 3
     assert summary["items_written"] == 7
+    assert summary["symbols_written"] == 5
     assert summary["embedding_written"] == 0
 
     engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
@@ -89,6 +92,15 @@ def test_index_cli_writes_scanned_items_to_configured_database(tmp_path: Path) -
         code_items = repository.list(asset_type=AssetType.CODE)
         schema_items = repository.list(asset_type=AssetType.DB_SCHEMA)
         doc_items = repository.list(asset_type=AssetType.DOC)
+        method_symbols = repository.find_symbols_exact(
+            repo="payment-app",
+            query="example.PaymentService.build(PaymentRequest)",
+        )
+        table_symbols = repository.find_symbols_exact(
+            repo="payment-app",
+            query="payment_order",
+            kinds=["table"],
+        )
 
     assert len(code_items) == 2
     assert len(schema_items) == 3
@@ -111,6 +123,10 @@ def test_index_cli_writes_scanned_items_to_configured_database(tmp_path: Path) -
         sample_root / "src/main/java/example/PaymentService.java"
     )
     assert code_items[0].source.path == "src/main/java/example/PaymentService.java"
+    assert len(method_symbols) == 1
+    assert method_symbols[0].kind == "method"
+    assert len(table_symbols) == 1
+    assert table_symbols[0].kind == "table"
 
 
 def test_include_and_exclude_rules_filter_files(tmp_path: Path) -> None:
@@ -190,6 +206,7 @@ public class PaymentService {
     assert summary["files_unchanged"] == 0
     assert summary["files_deleted"] == 0
     assert summary["items_written"] == 2
+    assert summary["symbols_written"] == 2
     assert summary["items_deleted"] == 0
 
     engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
@@ -201,12 +218,20 @@ public class PaymentService {
             path="src/main/java/example/PaymentService.java",
         )
         doc_items = repository.list(asset_type=AssetType.DOC, repo="payment-app")
+        code_symbols = repository.find_symbols_prefix(
+            repo="payment-app",
+            query="example.PaymentService",
+            language="java",
+        )
 
     assert {item.source.index_batch_id for item in code_items} == {
         summary["index_batch_id"]
     }
     assert {item.source.index_batch_id for item in doc_items} == {
         initial_summary["index_batch_id"]
+    }
+    assert {symbol.index_batch_id for symbol in code_symbols} == {
+        summary["index_batch_id"]
     }
 
 
@@ -243,13 +268,24 @@ def test_path_scope_deletes_missing_items_without_cross_repo_deletion(
     assert exit_code == 0
     assert summary["files_deleted"] == 1
     assert summary["items_deleted"] == 2
+    assert summary["symbols_deleted"] == 2
     assert summary["items_written"] == 0
 
     engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
     with Session(engine) as session:
         repository = IndexedItemRepository(session)
         assert repository.list(asset_type=AssetType.CODE, repo="payment-app") == []
+        assert repository.find_symbols_prefix(
+            repo="payment-app",
+            query="example.PaymentService",
+        ) == []
         assert len(repository.list(asset_type=AssetType.CODE, repo="order-app")) == 2
+        assert len(
+            repository.find_symbols_prefix(
+                repo="order-app",
+                query="example.PaymentService",
+            )
+        ) == 2
 
 
 def test_unchanged_path_scope_skips_item_and_embedding_writes(tmp_path: Path) -> None:
@@ -300,6 +336,7 @@ def test_unchanged_path_scope_skips_item_and_embedding_writes(tmp_path: Path) ->
     assert summary["files_changed"] == 0
     assert summary["files_unchanged"] == 1
     assert summary["items_written"] == 0
+    assert summary["symbols_written"] == 0
     assert summary["embedding_written"] == 0
     assert provider.requests == []
 
