@@ -37,6 +37,7 @@ def make_client() -> TestClient:
             metadata={"language": "java", "symbol_type": "method"},
             source=SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/PaymentMessageBuilder.java",
                 start_line=10,
                 end_line=30,
@@ -53,7 +54,11 @@ def make_client() -> TestClient:
             content="payment order status amount",
             summary="支付订单表。",
             metadata={"symbol_type": "table", "table": "payment_order"},
-            source=SourceCitation(source_type=SourceType.DB_SCHEMA, table="payment_order"),
+            source=SourceCitation(
+                source_type=SourceType.DB_SCHEMA,
+                repo="gitlab.example.com/payments/payment-service",
+                table="payment_order",
+            ),
         ),
         embedding=[1.0, 0.0, 0.0],
     )
@@ -67,6 +72,7 @@ def make_client() -> TestClient:
             metadata={"heading_path": "Payment Integration"},
             source=SourceCitation(
                 source_type=SourceType.DOC,
+                repo="gitlab.example.com/payments/payment-service",
                 path="docs/payment.md",
                 start_line=1,
                 end_line=8,
@@ -107,6 +113,32 @@ def test_search_interfaces_return_contract_results_with_source_citations() -> No
     assert doc_response.json()["results"][0]["source"]["heading_path"] == (
         "Payment Integration"
     )
+
+
+def test_search_interface_filters_results_by_repo() -> None:
+    client = make_client()
+
+    matching_response = client.post(
+        "/search-code",
+        json={
+            "query": "payment message",
+            "filters": {"repo": "gitlab.example.com/payments/payment-service"},
+        },
+    )
+    missing_response = client.post(
+        "/search-code",
+        json={
+            "query": "payment message",
+            "filters": {"repo": "gitlab.example.com/orders/order-service"},
+        },
+    )
+
+    assert matching_response.status_code == 200
+    assert matching_response.json()["results"][0]["source"]["repo"] == (
+        "gitlab.example.com/payments/payment-service"
+    )
+    assert missing_response.status_code == 200
+    assert missing_response.json() == {"results": []}
 
 
 def test_search_interfaces_return_empty_results_and_invalid_request_error() -> None:
@@ -169,6 +201,29 @@ def test_build_task_context_groups_results_and_reports_missing_context() -> None
     )
     assert payload["missing_context"] == []
     assert len(payload["citations"]) >= 3
+
+
+def test_build_task_context_applies_repo_constraint_to_all_searches() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/build-task-context",
+        json={
+            "task": "新增支付接口，复用支付报文生成能力",
+            "constraints": {
+                "repo": "gitlab.example.com/orders/order-service",
+                "language": "java",
+            },
+        },
+    )
+
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["related_code"] == []
+    assert payload["related_db_schema"] == []
+    assert payload["related_docs"] == []
+    assert payload["missing_context"] == ["code", "db_schema", "doc"]
 
 
 def test_build_task_context_reports_empty_assets_as_missing_context() -> None:
@@ -245,6 +300,7 @@ def test_search_generates_query_embedding_when_provider_is_configured() -> None:
             metadata={"language": "java", "symbol_type": "method"},
             source=SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/InvoicePrinter.java",
                 start_line=5,
                 end_line=18,
@@ -286,6 +342,7 @@ def test_explicit_query_embedding_skips_provider_call() -> None:
             metadata={"language": "java", "symbol_type": "method"},
             source=SourceCitation(
                 source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
                 path="src/main/java/example/InvoicePrinter.java",
                 start_line=5,
                 end_line=18,

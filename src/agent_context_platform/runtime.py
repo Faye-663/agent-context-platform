@@ -67,6 +67,10 @@ class RuntimeSettings(BaseModel):
     log_level: str = "INFO"
     # sql_echo 用于调试 SQLAlchemy 生成的 SQL，不建议生产常开。
     sql_echo: bool = False
+    # default_repo 用于单 code repo 本地运行时自动限定检索范围。
+    default_repo: str | None = None
+    # require_repo_filter 开启后，请求必须显式携带 repo 或由 default_repo 注入。
+    require_repo_filter: bool = False
     # embedding 为空时仍可做 keyword 检索；非空时 search 会启用 query embedding。
     embedding: EmbeddingProviderSettings | None = None
 
@@ -82,6 +86,11 @@ def load_runtime_settings(environ: Mapping[str, str] | None = None) -> RuntimeSe
             environment=values.get("ACP_ENV", "local"),
             log_level=_parse_log_level(values.get("ACP_LOG_LEVEL", "INFO")),
             sql_echo=_parse_bool(values.get("ACP_SQL_ECHO", "false"), "ACP_SQL_ECHO"),
+            default_repo=_optional_env_value(values.get("ACP_DEFAULT_REPO")),
+            require_repo_filter=_parse_bool(
+                values.get("ACP_REQUIRE_REPO_FILTER", "false"),
+                "ACP_REQUIRE_REPO_FILTER",
+            ),
             embedding=embedding,
         )
     except ValidationError as exc:
@@ -116,7 +125,11 @@ def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
                 embedding_provider,
             )
 
-    app = create_app(search_service_scope=search_service_scope)
+    app = create_app(
+        search_service_scope=search_service_scope,
+        default_repo=resolved_settings.default_repo,
+        require_repo_filter=resolved_settings.require_repo_filter,
+    )
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.runtime_settings = resolved_settings

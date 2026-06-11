@@ -139,9 +139,9 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T5: 多仓共库检索隔离
 
-**状态：** 已记录，待转正式需求。
+**状态：** 已转入正式需求并实施。
 
-**目标：** 避免多个 repo 写入同一数据库后互相覆盖、跨仓误召回或污染检索结果。
+**目标：** 避免多个 GitLab code repo 写入同一数据库后互相覆盖、跨仓误召回或污染检索结果。
 
 **当前实现风险：**
 
@@ -151,7 +151,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 **依赖：** `P1-T4` 的 repo identity / provenance 设计。
 
-**已确认依赖边界：** `P1-T4` 只提供 provenance contract；`P1-T5` 才处理 repo 作为过滤条件、主键组成部分或旧数据重建策略。
+**已确认依赖边界：** `P1-T4` 只提供 provenance contract；`P1-T5` 处理 repo 作为过滤条件、主键组成部分和索引重建边界。
 
 **被依赖：** `P1-T6`、`P1-T9`、`P1-T10`、`P2-T4`、`P2-T6`、`P2-T7`。
 
@@ -161,11 +161,19 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 - 多 repo 写入同一数据库时，不会因为相同相对路径和 symbol/table/heading 覆盖彼此。
 - `SearchResult.source.repo` 继续作为结果来源返回。
 
-**待明确：**
+**已确认决策：**
 
-- 支持一个数据库保存多个 repo，还是每个 repo 使用独立数据库。
-- `repo` 应作为过滤条件、主键组成部分，还是引入独立 project/workspace 概念。
-- 旧数据迁移时，现有不含 repo 的 `item.id` 是否需要重建。
+- 支持一个数据库保存多个 GitLab code repo。
+- `repo` 使用规范化 GitLab code repo identity，例如 `gitlab.example.com/group/project`。
+- `indexed_items` 使用 `(repo, id)` 作为存储身份；`item_embeddings` 也按 repo 隔离。
+- Context API 支持 `filters.repo`、`constraints.repo`、`ACP_DEFAULT_REPO` 和 `ACP_REQUIRE_REPO_FILTER`。
+- 旧索引数据是可重建派生数据，切换 repo-scoped identity 后要求重新执行 `acp-index`。
+
+**非目标：**
+
+- 不处理 doc/code/sql 与 organization 之间的业务归属关系。
+- 不处理一篇 doc 适用于多个 repo、一个 DB schema 被多个 repo 使用等跨资产关系。
+- 不从 Git remote 自动推断 repo，也不引入 workspace/project 关系模型。
 
 ### P1-T6: Incremental Indexing / Index Consistency
 
@@ -560,3 +568,31 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 - ACP 是否接受新增运行时依赖。
 - 工具输出是否能稳定映射到 ACP symbol catalog 和 graph edge。
 - Windows / CI / 大型工程性能是否满足生产级要求。
+
+### P2-T9: Organization / Cross-Asset Relationship Model
+
+**状态：** 新增，后续评估。
+
+**目标：** 在 repo 隔离成立后，单独表达 organization、code repo、DB schema、doc 之间的归属、适用范围和多对多关系，避免把这些语义塞进 `repo` 字段。
+
+**背景发现：**
+
+- 一个 organization 下可能有多个 code repo、多个 DB schema、多篇 doc。
+- doc 可能属于某个 code repo，也可能是 organization 级文档，或同时适用于多个 repo。
+- DB schema 与 code repo 也可能是一对多、多对多或共享关系。
+- `P1-T5` 的 `repo` 只承担 GitLab code repo 隔离键，不表达这些业务关系。
+
+**依赖：** `P1-T5`、`P1-T11`、`P1-T12`、`P2-T4`。
+
+**暂缓原因：**
+
+- 该问题属于关系建模和跨资产检索扩展，早于 `P1-T5` 处理会扩大范围。
+- 需要在 repo 隔离、context package、trace 和 sufficiency 稳定后再设计。
+- 不能靠 `repo` 字段隐式推断 doc/code/sql 关系。
+
+**待明确：**
+
+- organization / workspace identity 如何定义。
+- doc 的适用范围来自显式配置、front matter、目录约定、数据库关系表，还是人工维护。
+- DB schema 与 code repo 的关系由配置、导入 manifest、调用链，还是业务系统元数据提供。
+- 这些关系何时参与检索扩展，何时只用于 trace / sufficiency 提示。

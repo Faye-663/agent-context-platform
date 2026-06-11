@@ -273,14 +273,17 @@ def test_embed_and_save_items_writes_all_asset_embeddings_with_identity() -> Non
             }
         }
         """,
+        repo="gitlab.example.com/payments/payment-service",
     )
     sql_items = index_sql_ddl(
         "db/payment.sql",
         "CREATE TABLE payment_order (id bigint, status varchar(20));",
+        repo="gitlab.example.com/payments/payment-service",
     )
     doc_items = index_markdown_document(
         "docs/payment.md",
         "# Payment Integration\n\nBuild payment messages.",
+        repo="gitlab.example.com/payments/payment-service",
     )
     items = [java_items[0], sql_items[0], doc_items[0]]
 
@@ -292,14 +295,17 @@ def test_embed_and_save_items_writes_all_asset_embeddings_with_identity() -> Non
     with Session(engine) as session:
         repository = IndexedItemRepository(session)
         code_embeddings = repository.list_with_embeddings(
+            repo="gitlab.example.com/payments/payment-service",
             asset_type=AssetType.CODE,
             embedding_identity=provider.identity,
         )
         schema_embeddings = repository.list_with_embeddings(
+            repo="gitlab.example.com/payments/payment-service",
             asset_type=AssetType.DB_SCHEMA,
             embedding_identity=provider.identity,
         )
         doc_embeddings = repository.list_with_embeddings(
+            repo="gitlab.example.com/payments/payment-service",
             asset_type=AssetType.DOC,
             embedding_identity=provider.identity,
         )

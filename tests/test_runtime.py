@@ -30,6 +30,8 @@ def test_load_runtime_settings_reads_runtime_and_embedding_values() -> None:
             "ACP_ENV": "test",
             "ACP_LOG_LEVEL": "DEBUG",
             "ACP_SQL_ECHO": "true",
+            "ACP_DEFAULT_REPO": "gitlab.example.com/payments/payment-service",
+            "ACP_REQUIRE_REPO_FILTER": "true",
             "ACP_EMBEDDING_BASE_URL": "https://embedding.example.com/v1",
             "ACP_EMBEDDING_API_KEY": "test-key",
             "ACP_EMBEDDING_MODEL": "embedding-model",
@@ -41,6 +43,8 @@ def test_load_runtime_settings_reads_runtime_and_embedding_values() -> None:
     assert settings.environment == "test"
     assert settings.log_level == "DEBUG"
     assert settings.sql_echo is True
+    assert settings.default_repo == "gitlab.example.com/payments/payment-service"
+    assert settings.require_repo_filter is True
     assert settings.embedding is not None
     assert settings.embedding.dimension == 1024
     assert settings.embedding.batch_size == 32
@@ -153,6 +157,7 @@ def test_create_runtime_app_serves_context_api(tmp_path) -> None:
                 metadata={"language": "java", "symbol_type": "method"},
                 source=SourceCitation(
                     source_type=SourceType.CODE,
+                    repo="gitlab.example.com/payments/payment-service",
                     path="src/main/java/example/PaymentMessageBuilder.java",
                     start_line=10,
                     end_line=30,
@@ -169,6 +174,81 @@ def test_create_runtime_app_serves_context_api(tmp_path) -> None:
     assert response.json()["results"][0]["source"]["symbol"] == (
         "PaymentMessageBuilder.build"
     )
+
+
+def test_create_runtime_app_applies_default_repo_filter(tmp_path) -> None:
+    settings = RuntimeSettings(
+        database_url=f"sqlite:///{tmp_path / 'runtime.db'}",
+        environment="test",
+        default_repo="gitlab.example.com/payments/payment-service",
+    )
+    app = create_runtime_app(settings)
+    Base.metadata.create_all(app.state.engine)
+
+    with Session(app.state.engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(
+            IndexedItem(
+                id="code:SharedService.build",
+                asset_type=AssetType.CODE,
+                title="SharedService.build",
+                content="build shared payment",
+                summary="支付服务实现。",
+                metadata={"language": "java", "symbol_type": "method"},
+                source=SourceCitation(
+                    source_type=SourceType.CODE,
+                    repo="gitlab.example.com/payments/payment-service",
+                    path="src/main/java/example/SharedService.java",
+                    start_line=10,
+                    end_line=30,
+                    symbol="SharedService.build",
+                ),
+            )
+        )
+        repository.save(
+            IndexedItem(
+                id="code:SharedService.build",
+                asset_type=AssetType.CODE,
+                title="SharedService.build",
+                content="build shared payment",
+                summary="订单服务实现。",
+                metadata={"language": "java", "symbol_type": "method"},
+                source=SourceCitation(
+                    source_type=SourceType.CODE,
+                    repo="gitlab.example.com/orders/order-service",
+                    path="src/main/java/example/SharedService.java",
+                    start_line=40,
+                    end_line=60,
+                    symbol="SharedService.build",
+                ),
+            )
+        )
+        session.commit()
+
+    client = TestClient(app)
+    response = client.post("/search-code", json={"query": "shared payment"})
+
+    assert response.status_code == 200
+    assert [result["source"]["repo"] for result in response.json()["results"]] == [
+        "gitlab.example.com/payments/payment-service"
+    ]
+
+
+def test_create_runtime_app_requires_repo_filter_when_configured(tmp_path) -> None:
+    settings = RuntimeSettings(
+        database_url=f"sqlite:///{tmp_path / 'runtime.db'}",
+        environment="test",
+        require_repo_filter=True,
+    )
+    app = create_runtime_app(settings)
+    Base.metadata.create_all(app.state.engine)
+
+    client = TestClient(app)
+    response = client.post("/search-code", json={"query": "payment"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert "repo" in response.json()["error"]["message"]
 
 
 def test_asgi_module_exposes_importable_app(monkeypatch, tmp_path) -> None:

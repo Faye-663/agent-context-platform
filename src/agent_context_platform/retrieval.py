@@ -31,7 +31,7 @@ class HybridSearchQuery:
     asset_type: AssetType
     # limit 是最终返回条数；内部候选也用它控制召回上限。
     limit: int = 10
-    # filters 承载结构化条件，例如 language、path_prefix、symbol_type、table。
+    # filters 承载结构化条件，例如 repo、language、path_prefix、symbol_type、table。
     filters: dict[str, Any] = field(default_factory=dict)
     # query_embedding 可由调用方传入；不传时会尝试用 embedding_provider 生成。
     query_embedding: list[float] | None = None
@@ -53,6 +53,7 @@ class HybridSearchService:
             raise ValueError("query must not be empty")
 
         filters = dict(search_query.filters or {})
+        repo = filters.get("repo")
         symbol_types = _as_string_list(filters.get("symbol_type"))
         query_embedding = search_query.query_embedding
         embedding_identity = None
@@ -70,11 +71,12 @@ class HybridSearchService:
 
         tokens = _query_tokens(query)
         candidate_limit = max(1, search_query.limit)
-        candidate_vectors: dict[str, float] = {}
-        candidates: dict[str, Any] = {}
+        candidate_vectors: dict[tuple[str | None, str], float] = {}
+        candidates: dict[tuple[str | None, str], Any] = {}
         if query_embedding is not None and embedding_identity is not None:
             # PostgreSQL 路径由 repository 下推给 pgvector；SQLite 测试路径保留轻量替代实现。
             for item, vector_score in self.repository.search_by_vector(
+                repo=repo,
                 asset_type=search_query.asset_type,
                 path_prefix=filters.get("path_prefix"),
                 language=filters.get("language"),
@@ -84,11 +86,13 @@ class HybridSearchService:
                 embedding_identity=embedding_identity,
                 limit=candidate_limit,
             ):
-                candidates[item.id] = item
-                candidate_vectors[item.id] = vector_score
+                candidate_key = (item.source.repo, item.id)
+                candidates[candidate_key] = item
+                candidate_vectors[candidate_key] = vector_score
         elif query_embedding is not None:
             # 兼容手动传 query_embedding 但没有 provider 的测试场景；生产路径应优先带 identity。
             for item, embedding in self.repository.list_with_embeddings(
+                repo=repo,
                 asset_type=search_query.asset_type,
                 path_prefix=filters.get("path_prefix"),
                 language=filters.get("language"),
@@ -96,11 +100,13 @@ class HybridSearchService:
                 table=filters.get("table"),
                 embedding_identity=embedding_identity,
             ):
-                candidates[item.id] = item
-                candidate_vectors[item.id] = _vector_score(query_embedding, embedding)
+                candidate_key = (item.source.repo, item.id)
+                candidates[candidate_key] = item
+                candidate_vectors[candidate_key] = _vector_score(query_embedding, embedding)
 
         # keyword 召回始终执行，用来补足“向量相似但关键词不明显”或“尚未生成 embedding”的资产。
         for item in self.repository.list_keyword_candidates(
+            repo=repo,
             asset_type=search_query.asset_type,
             path_prefix=filters.get("path_prefix"),
             language=filters.get("language"),
@@ -109,12 +115,12 @@ class HybridSearchService:
             keywords=sorted(tokens),
             limit=candidate_limit,
         ):
-            candidates.setdefault(item.id, item)
+            candidates.setdefault((item.source.repo, item.id), item)
 
         results: list[SearchResult] = []
-        for item in candidates.values():
+        for candidate_key, item in candidates.items():
             keyword_score, matched_tokens = _keyword_score(item, tokens)
-            vector_score = candidate_vectors.get(item.id, 0.0)
+            vector_score = candidate_vectors.get(candidate_key, 0.0)
             # 当前权重偏向 keyword，便于早期工程检索保持可解释；后续评测可再调整。
             score = round(keyword_score * 0.7 + vector_score * 0.3, 6)
             if score <= 0:

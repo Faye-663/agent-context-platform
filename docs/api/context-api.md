@@ -16,7 +16,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 
 | 字段 | 说明 |
 |---|---|
-| `id` | 稳定可重建的索引项唯一 ID |
+| `id` | 稳定可重建的索引项 ID，在同一个 `repo` 内唯一 |
 | `asset_type` | `code`、`db_schema`、`doc` |
 | `title` | 面向结果展示的标题 |
 | `content` | 参与检索和 embedding 的主体文本 |
@@ -33,7 +33,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 | 字段 | 说明 |
 |---|---|
 | `source_type` | `code`、`db_schema`、`doc` |
-| `repo` | 来源仓库或语料标识 |
+| `repo` | GitLab code repo identity，例如 `gitlab.example.com/group/project` |
 | `branch` | 索引运行时 best-effort 采集的 Git branch，可为空 |
 | `commit_sha` | 索引运行时 best-effort 采集的 Git commit SHA，可为空 |
 | `file_hash` | 索引时来源文件内容的 SHA-256 指纹，可为空 |
@@ -111,6 +111,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
     "language": "java",
     "symbol_type": ["class", "method"],
     "path_prefix": "src/main/java",
+    "repo": "gitlab.example.com/payments/payment-service",
     "table": null
   },
   "query_embedding": null,
@@ -128,6 +129,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 | `filters.symbol_type` | 可选，可为字符串或字符串数组 |
 | `filters.path_prefix` | 可选，限制仓库子目录 |
 | `filters.table` | 可选，用于 DB schema 搜索 |
+| `filters.repo` | 可选，限制 GitLab code repo；未传时可由 `ACP_DEFAULT_REPO` 注入 |
 | `query_embedding` | 可选，用于显式传入 query embedding |
 | `request_id` | 可选，用于贯穿日志和调试链路 |
 
@@ -203,7 +205,8 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
     "similar_implementations": 5
   },
   "constraints": {
-    "language": "java"
+    "language": "java",
+    "repo": "gitlab.example.com/payments/payment-service"
   },
   "request_id": "req-002"
 }
@@ -215,7 +218,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 |---|---|
 | `task` | 必填，非空任务描述 |
 | `limits` | 可选，按上下文类型控制返回数量 |
-| `constraints` | 可选，当前主要用于 `language` 等跨检索约束 |
+| `constraints` | 可选，当前主要用于 `language`、`repo` 等跨检索约束 |
 | `request_id` | 可选，用于日志追踪 |
 
 响应：
@@ -281,6 +284,14 @@ API 当前对上述错误返回 HTTP `400`。调用方应优先读取 `error.cod
 MCP wrapper 会透传 search 请求中的 `query`、`limit`、`filters`、`query_embedding`、`request_id`，以及 build 请求中的 `task`、`limits`、`constraints`、`request_id`。
 
 MCP wrapper 只调用 Context API，不直接访问 repository、SQLAlchemy session 或数据库。
+
+## Repo 过滤
+
+`repo` 是 multi code repo 共库检索的隔离键。生产索引时应通过 `acp-index --repo` 写入稳定的 GitLab code repo identity；查询时通过 `filters.repo` 或 `constraints.repo` 限定候选集。
+
+`ACP_DEFAULT_REPO` 可在 Context API 层为单 repo 本地运行自动注入 repo；`ACP_REQUIRE_REPO_FILTER=true` 时，请求和默认配置都缺少 repo 会返回 `invalid_request`。
+
+`repo` 不表达 doc/code/sql 的业务归属关系，也不表示 organization 级适用范围；这些关系需要独立的关系模型。
 
 ## 日志与调试
 

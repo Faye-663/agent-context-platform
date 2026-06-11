@@ -124,9 +124,21 @@ def test_offline_index_results_can_be_saved_to_repository() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     items = (
-        index_java_source("src/main/java/example/PaymentMessageBuilder.java", JAVA_SAMPLE)
-        + index_sql_ddl("schema/payment.sql", SQL_SAMPLE)
-        + index_markdown_document("docs/payment.md", MARKDOWN_SAMPLE)
+        index_java_source(
+            "src/main/java/example/PaymentMessageBuilder.java",
+            JAVA_SAMPLE,
+            repo="gitlab.example.com/payments/payment-service",
+        )
+        + index_sql_ddl(
+            "schema/payment.sql",
+            SQL_SAMPLE,
+            repo="gitlab.example.com/payments/payment-service",
+        )
+        + index_markdown_document(
+            "docs/payment.md",
+            MARKDOWN_SAMPLE,
+            repo="gitlab.example.com/payments/payment-service",
+        )
     )
 
     with Session(engine) as session:
@@ -138,6 +150,15 @@ def test_offline_index_results_can_be_saved_to_repository() -> None:
     with Session(engine) as session:
         repository = IndexedItemRepository(session)
 
-        assert repository.list(asset_type=AssetType.CODE)
-        assert repository.list(asset_type=AssetType.DB_SCHEMA)
-        assert repository.list(asset_type=AssetType.DOC)
+        assert repository.list(
+            asset_type=AssetType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
+        )
+        assert repository.list(
+            asset_type=AssetType.DB_SCHEMA,
+            repo="gitlab.example.com/payments/payment-service",
+        )
+        assert repository.list(
+            asset_type=AssetType.DOC,
+            repo="gitlab.example.com/payments/payment-service",
+        )
