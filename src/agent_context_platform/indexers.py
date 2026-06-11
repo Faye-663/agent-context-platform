@@ -10,11 +10,24 @@ from markdown_it import MarkdownIt
 from sqlglot import exp
 from tree_sitter import Language, Node, Parser
 
-from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
+from agent_context_platform.models import (
+    AssetType,
+    IndexedItem,
+    SourceCitation,
+    SourceType,
+    SymbolCatalogEntry,
+)
 
 
 _JAVA_LANGUAGE = Language(tree_sitter_java.language())
 _JAVA_PARSER = Parser(_JAVA_LANGUAGE)
+_JAVA_TYPE_NODE_KINDS = {
+    "class_declaration": "class",
+    "interface_declaration": "interface",
+    "enum_declaration": "enum",
+    "record_declaration": "record",
+    "annotation_type_declaration": "annotation_type",
+}
 
 
 def index_java_source(path: str, content: str, repo: str | None = None) -> list[IndexedItem]:
@@ -92,6 +105,116 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
     return items
 
 
+def index_java_symbols(
+    path: str,
+    content: str,
+    repo: str | None = None,
+    *,
+    indexed_items: list[IndexedItem] | None = None,
+) -> list[SymbolCatalogEntry]:
+    # symbol catalog 只记录声明节点，为后续 code graph 提供稳定节点身份。
+    tree = _JAVA_PARSER.parse(content.encode("utf-8"))
+    package_name = _java_package_name(tree.root_node)
+    item_ids = _source_item_ids_by_symbol(indexed_items or [])
+    symbols: list[SymbolCatalogEntry] = []
+
+    for type_node in _walk_nodes(tree.root_node, set(_JAVA_TYPE_NODE_KINDS)):
+        name_node = type_node.child_by_field_name("name")
+        if name_node is None:
+            continue
+        type_name = _node_text(name_node)
+        kind = _JAVA_TYPE_NODE_KINDS[type_node.type]
+        qualified_type_name = _qualified_java_type_name(
+            package_name=package_name,
+            type_node=type_node,
+            type_name=type_name,
+        )
+        type_source = _source_lines(content, type_node)
+        type_item_id = item_ids.get(type_name)
+        symbols.append(
+            _symbol_entry(
+                repo=repo,
+                language="java",
+                path=path,
+                kind=kind,
+                name=type_name,
+                qualified_name=qualified_type_name,
+                source=type_source,
+                source_item_id=type_item_id,
+            )
+        )
+
+        body = type_node.child_by_field_name("body")
+        if body is None:
+            continue
+        for member_node in body.named_children:
+            if member_node.type == "method_declaration":
+                method_name_node = member_node.child_by_field_name("name")
+                if method_name_node is None:
+                    continue
+                method_name = _node_text(method_name_node)
+                parameter_types = _parameter_types(member_node)
+                qualified_name = (
+                    f"{qualified_type_name}.{method_name}({', '.join(parameter_types)})"
+                )
+                method_source = _source_lines(content, member_node)
+                symbols.append(
+                    _symbol_entry(
+                        repo=repo,
+                        language="java",
+                        path=path,
+                        kind="method",
+                        name=method_name,
+                        qualified_name=qualified_name,
+                        source=method_source,
+                        source_item_id=item_ids.get(f"{type_name}.{method_name}"),
+                    )
+                )
+            elif member_node.type in {"constructor_declaration", "compact_constructor_declaration"}:
+                constructor_name = type_name
+                name_node = member_node.child_by_field_name("name")
+                if name_node is not None:
+                    constructor_name = _node_text(name_node)
+                parameter_types = _parameter_types(member_node)
+                qualified_name = (
+                    f"{qualified_type_name}.<init>({', '.join(parameter_types)})"
+                )
+                constructor_source = _source_lines(content, member_node)
+                symbols.append(
+                    _symbol_entry(
+                        repo=repo,
+                        language="java",
+                        path=path,
+                        kind="constructor",
+                        name=constructor_name,
+                        qualified_name=qualified_name,
+                        source=constructor_source,
+                        source_item_id=type_item_id,
+                    )
+                )
+            elif member_node.type == "field_declaration":
+                field_source = _source_lines(content, member_node)
+                for variable_node in _walk_nodes(member_node, {"variable_declarator"}):
+                    field_name_node = variable_node.child_by_field_name("name")
+                    if field_name_node is None:
+                        continue
+                    field_name = _node_text(field_name_node)
+                    symbols.append(
+                        _symbol_entry(
+                            repo=repo,
+                            language="java",
+                            path=path,
+                            kind="field",
+                            name=field_name,
+                            qualified_name=f"{qualified_type_name}.{field_name}",
+                            source=field_source,
+                            source_item_id=type_item_id,
+                        )
+                    )
+
+    return sorted(symbols, key=lambda symbol: (symbol.qualified_name, symbol.kind))
+
+
 def index_sql_ddl(path: str, content: str, repo: str | None = None) -> list[IndexedItem]:
     # sqlglot 输出 AST 后，再拆成 table/column 两级资产，方便任务只召回相关表或字段。
     expressions = sqlglot.parse(content, read="postgres")
@@ -156,6 +279,50 @@ def index_sql_ddl(path: str, content: str, repo: str | None = None) -> list[Inde
             )
 
     return items
+
+
+def index_sql_symbols(
+    path: str,
+    content: str,
+    repo: str | None = None,
+    *,
+    indexed_items: list[IndexedItem] | None = None,
+) -> list[SymbolCatalogEntry]:
+    expressions = sqlglot.parse(content, read="postgres")
+    item_ids = _source_item_ids_by_symbol(indexed_items or [])
+    symbols: list[SymbolCatalogEntry] = []
+    for expression in expressions:
+        if not isinstance(expression, exp.Create) or expression.args.get("kind") != "TABLE":
+            continue
+        table_name = expression.this.this.name
+        symbols.append(
+            _symbol_entry(
+                repo=repo,
+                language="sql",
+                path=path,
+                kind="table",
+                name=table_name,
+                qualified_name=table_name,
+                source=None,
+                source_item_id=item_ids.get(table_name),
+            )
+        )
+        for column in expression.find_all(exp.ColumnDef):
+            column_name = column.name
+            qualified_name = f"{table_name}.{column_name}"
+            symbols.append(
+                _symbol_entry(
+                    repo=repo,
+                    language="sql",
+                    path=path,
+                    kind="column",
+                    name=column_name,
+                    qualified_name=qualified_name,
+                    source=None,
+                    source_item_id=item_ids.get(qualified_name),
+                )
+            )
+    return symbols
 
 
 def index_markdown_document(
@@ -236,6 +403,31 @@ def _indexed_item(
     )
 
 
+def _symbol_entry(
+    *,
+    repo: str | None,
+    language: str,
+    path: str,
+    kind: str,
+    name: str,
+    qualified_name: str,
+    source: _LineSource | None,
+    source_item_id: str | None,
+) -> SymbolCatalogEntry:
+    return SymbolCatalogEntry(
+        symbol_id=f"{language}:{kind}:{qualified_name}",
+        repo=repo or "",
+        path=path,
+        language=language,
+        kind=kind,
+        name=name,
+        qualified_name=qualified_name,
+        start_line=source.start_line if source is not None else None,
+        end_line=source.end_line if source is not None else None,
+        source_item_id=source_item_id,
+    )
+
+
 def _walk_nodes(root: Node, node_types: set[str]) -> list[Node]:
     # tree-sitter 的 Node 没有直接按类型查询的高层 API，这里用显式栈保留遍历顺序和可调试性。
     found: list[Node] = []
@@ -258,6 +450,67 @@ def _source_lines(content: str, node: Node) -> _LineSource:
     end_line = node.end_point.row + 1
     text = "\n".join(lines[start_line - 1 : end_line]).strip()
     return _LineSource(start_line=start_line, end_line=end_line, text=text)
+
+
+def _java_package_name(root: Node) -> str | None:
+    package_node = next(iter(_walk_nodes(root, {"package_declaration"})), None)
+    if package_node is None:
+        return None
+    scoped_identifier = next(
+        (
+            child
+            for child in package_node.named_children
+            if child.type in {"scoped_identifier", "identifier"}
+        ),
+        None,
+    )
+    return _node_text(scoped_identifier) if scoped_identifier is not None else None
+
+
+def _qualified_java_type_name(
+    *,
+    package_name: str | None,
+    type_node: Node,
+    type_name: str,
+) -> str:
+    enclosing_names: list[str] = []
+    parent = type_node.parent
+    while parent is not None:
+        if parent.type in _JAVA_TYPE_NODE_KINDS:
+            name_node = parent.child_by_field_name("name")
+            if name_node is not None:
+                enclosing_names.append(_node_text(name_node))
+        parent = parent.parent
+    parts = ([package_name] if package_name else []) + list(reversed(enclosing_names)) + [
+        type_name
+    ]
+    return ".".join(parts)
+
+
+def _parameter_types(node: Node) -> list[str]:
+    parameters_node = node.child_by_field_name("parameters")
+    if parameters_node is None:
+        return []
+    parameter_types: list[str] = []
+    for parameter_node in parameters_node.named_children:
+        if parameter_node.type not in {"formal_parameter", "spread_parameter"}:
+            continue
+        type_node = parameter_node.child_by_field_name("type")
+        if type_node is not None:
+            parameter_types.append(_node_text(type_node))
+    return parameter_types
+
+
+def _source_item_ids_by_symbol(items: list[IndexedItem]) -> dict[str, str]:
+    ids: dict[str, str] = {}
+    for item in items:
+        if item.source.symbol:
+            ids[item.source.symbol] = item.id
+        if item.source.table:
+            ids[item.source.table] = item.id
+        if item.source.table and item.source.column:
+            ids[f"{item.source.table}.{item.source.column}"] = item.id
+    return ids
 
 
 def _annotation_names(node: Node) -> list[str]:
