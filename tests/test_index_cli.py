@@ -143,6 +143,317 @@ def test_include_and_exclude_rules_filter_files(tmp_path: Path) -> None:
     assert summary["items_estimated"] == 0
 
 
+def test_path_scope_reindexes_changed_file_without_touching_other_paths(
+    tmp_path: Path,
+) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    initial_output = StringIO()
+    run(
+        ["--root", str(sample_root), "--repo", "payment-app"],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=initial_output,
+    )
+    initial_summary = _summary(initial_output)
+    java_path = sample_root / "src/main/java/example/PaymentService.java"
+    java_path.write_text(
+        """package example;
+
+public class PaymentService {
+    public String build(PaymentRequest request) {
+        return "changed";
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    output = StringIO()
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--path",
+            "src/main/java/example/PaymentService.java",
+        ],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=output,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 0
+    assert summary["scope_paths"] == ["src/main/java/example/PaymentService.java"]
+    assert summary["files_scanned"] == 1
+    assert summary["files_changed"] == 1
+    assert summary["files_unchanged"] == 0
+    assert summary["files_deleted"] == 0
+    assert summary["items_written"] == 2
+    assert summary["items_deleted"] == 0
+
+    engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        code_items = repository.list(
+            asset_type=AssetType.CODE,
+            repo="payment-app",
+            path="src/main/java/example/PaymentService.java",
+        )
+        doc_items = repository.list(asset_type=AssetType.DOC, repo="payment-app")
+
+    assert {item.source.index_batch_id for item in code_items} == {
+        summary["index_batch_id"]
+    }
+    assert {item.source.index_batch_id for item in doc_items} == {
+        initial_summary["index_batch_id"]
+    }
+
+
+def test_path_scope_deletes_missing_items_without_cross_repo_deletion(
+    tmp_path: Path,
+) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    for repo in ("payment-app", "order-app"):
+        output = StringIO()
+        run(
+            ["--root", str(sample_root), "--repo", repo],
+            environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+            stdout=output,
+        )
+    java_path = sample_root / "src/main/java/example/PaymentService.java"
+    java_path.unlink()
+    output = StringIO()
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--path",
+            "src/main/java/example",
+        ],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=output,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 0
+    assert summary["files_deleted"] == 1
+    assert summary["items_deleted"] == 2
+    assert summary["items_written"] == 0
+
+    engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        assert repository.list(asset_type=AssetType.CODE, repo="payment-app") == []
+        assert len(repository.list(asset_type=AssetType.CODE, repo="order-app")) == 2
+
+
+def test_unchanged_path_scope_skips_item_and_embedding_writes(tmp_path: Path) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    initial_provider = FakeEmbeddingProvider()
+    initial_output = StringIO()
+    run(
+        ["--root", str(sample_root), "--repo", "payment-app", "--with-embedding"],
+        environ={
+            "ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}",
+            "ACP_EMBEDDING_BASE_URL": "https://embedding.example.test",
+            "ACP_EMBEDDING_API_KEY": "secret",
+            "ACP_EMBEDDING_MODEL": "mvp-index-cli",
+            "ACP_EMBEDDING_DIMENSION": "3",
+            "ACP_EMBEDDING_BATCH_SIZE": "2",
+        },
+        stdout=initial_output,
+        embedding_provider_factory=lambda _settings: initial_provider,
+    )
+    provider = FakeEmbeddingProvider()
+    output = StringIO()
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--path",
+            "src/main/java/example/PaymentService.java",
+            "--with-embedding",
+        ],
+        environ={
+            "ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}",
+            "ACP_EMBEDDING_BASE_URL": "https://embedding.example.test",
+            "ACP_EMBEDDING_API_KEY": "secret",
+            "ACP_EMBEDDING_MODEL": "mvp-index-cli",
+            "ACP_EMBEDDING_DIMENSION": "3",
+            "ACP_EMBEDDING_BATCH_SIZE": "2",
+        },
+        stdout=output,
+        embedding_provider_factory=lambda _settings: provider,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 0
+    assert summary["files_changed"] == 0
+    assert summary["files_unchanged"] == 1
+    assert summary["items_written"] == 0
+    assert summary["embedding_written"] == 0
+    assert provider.requests == []
+
+
+def test_parse_failure_keeps_existing_items_for_failed_path(tmp_path: Path) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    initial_output = StringIO()
+    run(
+        ["--root", str(sample_root), "--repo", "payment-app"],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=initial_output,
+    )
+    initial_summary = _summary(initial_output)
+    (sample_root / "schema/payment.sql").write_text(
+        "CREATE TABLE broken (",
+        encoding="utf-8",
+    )
+    output = StringIO()
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--path",
+            "schema/payment.sql",
+        ],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=output,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 1
+    assert summary["files_changed"] == 0
+    assert summary["files_unchanged"] == 0
+    assert summary["files_deleted"] == 0
+    assert summary["items_deleted"] == 0
+    assert summary["failures"][0]["path"] == "schema/payment.sql"
+
+    engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        schema_items = repository.list(asset_type=AssetType.DB_SCHEMA, repo="payment-app")
+
+    assert len(schema_items) == 3
+    assert {item.source.index_batch_id for item in schema_items} == {
+        initial_summary["index_batch_id"]
+    }
+
+
+def test_dry_run_reports_incremental_changes_without_database_mutation(
+    tmp_path: Path,
+) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    initial_output = StringIO()
+    run(
+        ["--root", str(sample_root), "--repo", "payment-app"],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=initial_output,
+    )
+    initial_summary = _summary(initial_output)
+    java_path = sample_root / "src/main/java/example/PaymentService.java"
+    java_path.write_text(
+        """package example;
+
+public class PaymentService {
+    public String build(PaymentRequest request) {
+        return "dry-run";
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    (sample_root / "docs/payment.md").unlink()
+    output = StringIO()
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--path",
+            "src/main/java/example/PaymentService.java",
+            "--path",
+            "docs",
+            "--dry-run",
+        ],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=output,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 0
+    assert summary["files_changed"] == 1
+    assert summary["files_deleted"] == 1
+    assert summary["items_deleted"] == 2
+    assert summary["items_written"] == 0
+
+    engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        code_items = repository.list(asset_type=AssetType.CODE, repo="payment-app")
+        doc_items = repository.list(asset_type=AssetType.DOC, repo="payment-app")
+
+    assert {item.source.index_batch_id for item in code_items + doc_items} == {
+        initial_summary["index_batch_id"]
+    }
+    assert len(doc_items) == 2
+
+
+def test_include_scope_does_not_delete_existing_items_outside_include_patterns(
+    tmp_path: Path,
+) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    initial_output = StringIO()
+    run(
+        ["--root", str(sample_root), "--repo", "payment-app"],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=initial_output,
+    )
+    (sample_root / "src/main/java/example/PaymentService.java").unlink()
+    output = StringIO()
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--include",
+            "**/*.java",
+        ],
+        environ={"ACP_DATABASE_URL": f"sqlite:///{sqlite_db.as_posix()}"},
+        stdout=output,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 0
+    assert summary["files_deleted"] == 1
+    assert summary["items_deleted"] == 2
+
+    engine = create_engine(f"sqlite:///{sqlite_db.as_posix()}")
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        assert repository.list(asset_type=AssetType.CODE, repo="payment-app") == []
+        assert len(repository.list(asset_type=AssetType.DB_SCHEMA, repo="payment-app")) == 3
+        assert len(repository.list(asset_type=AssetType.DOC, repo="payment-app")) == 2
+
+
 def test_with_embedding_explicitly_writes_embeddings(tmp_path: Path) -> None:
     sample_root = _sample_project(tmp_path)
     sqlite_db = sample_root / "index.sqlite"
