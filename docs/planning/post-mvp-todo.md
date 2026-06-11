@@ -42,7 +42,7 @@
 
 ### P1-T2: MCP Tool Contract 优化
 
-**状态：** 已讨论，待转正式需求。
+**状态：** 已转入正式需求；索引 / 存储部分由开发者 B 实施中，retrieval 接入仍归开发者 C。
 
 **目标：** 保留现有 4 个 core tools，优化 description、request format、response format、错误格式和调试语义。
 
@@ -279,13 +279,15 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 - 目标是辅助召回 + code graph 铺底，不是单纯“跳转定义”工具。
 - 建立稳定 `symbol_id`、`repo`、`path`、`language`、`kind`、`name`、`qualified_name` 和 source range。
+- v1 使用独立 `symbols` 表，不复用 `indexed_items` metadata 作为 catalog 存储。
+- v1 覆盖 Java `class`、`interface`、`enum`、`record`、`annotation_type`、`method`、`constructor`、`field`，以及 SQL `table`、`column`；Markdown heading 不纳入 symbol catalog。
+- v1 只记录 definitions，不记录 method call、field access、type reference、extends / implements 等 graph edge。
+- 开发者 B 提供 exact / prefix lookup；fuzzy、RRF、trace 和 ranking 属于开发者 C。
 - 当 query 包含疑似类名、方法名、驼峰词、包路径或完全限定名时，优先召回 exact / prefix / fuzzy 命中的 symbol。
 - symbol recall 的结果进入统一 `SearchResult`，并在 `score_parts` 或 trace 中区分 `symbol` 分数。
 
 **待明确：**
 
-- v1 是否只支持 Java symbol，还是同时覆盖 SQL table / column 和 Markdown heading。
-- symbol catalog 是复用 `indexed_items` 扩展字段，还是新增独立 `symbols` 表。
 - fuzzy 规则范围。
 - symbol recall 与 RRF 的融合方式。
 

@@ -87,6 +87,26 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 
 约束：`citations` 必须覆盖所有返回结果的来源。
 
+### SymbolCatalogEntry
+
+统一表示已索引工程资产中的 symbol definition。它是 repository / retrieval 层的 catalog contract，当前不作为独立 HTTP endpoint 暴露。
+
+| 字段 | 说明 |
+|---|---|
+| `symbol_id` | 在同一个 `repo` 内唯一的稳定 symbol identity |
+| `repo` | GitLab code repo identity |
+| `path` | symbol 所在的 repo 内相对路径 |
+| `language` | `java`、`sql` 等语言标识，可为空 |
+| `kind` | declaration 类型，例如 `class`、`method`、`field`、`table`、`column` |
+| `name` | 短名称 |
+| `qualified_name` | 完整限定名，用于 exact / prefix lookup |
+| `start_line` | 起始行号，可为空 |
+| `end_line` | 结束行号，可为空 |
+| `source_item_id` | 同 repo 下可展示或可检索的 `IndexedItem.id`，可为空 |
+| `branch` / `commit_sha` / `file_hash` / `indexed_at` / `index_batch_id` | 与 `SourceCitation` 对齐的索引 provenance |
+
+当前 catalog 只记录 definitions，不记录 method call、field access、type reference 或 graph edge。
+
 ## Search API
 
 ### `POST /search-code`
