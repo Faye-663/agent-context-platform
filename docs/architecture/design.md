@@ -103,17 +103,19 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 `acp-index` 是真实项目入库入口。它负责：
 
 - 递归扫描 `--root`。
-- 应用 include/exclude。
+- 应用 include/exclude；传入 `--path` 时只扫描指定文件或目录 scope。
 - 使用根目录名或 `--repo` 生成 repo 标识；生产使用应显式传入规范化 GitLab code repo identity。
 - 生成本次运行的索引批次 ID 和索引时间。
 - best-effort 读取 `--root` 的 Git branch / commit；读取失败时记录 provenance warning，不阻断索引。
 - 按原始文件 bytes 计算 SHA-256，写入每条来源引用。
 - 调用 Java、SQL、Markdown indexer。
-- 在 `--dry-run` 时只输出扫描和预计索引摘要。
+- 使用已存 file hash 判断 changed / unchanged；hash 未变化的文件不重写 item 或 embedding。
+- 清理同 repo、同 scope 且符合 include/exclude 的旧索引；读取或解析失败的文件保留旧索引。
+- 在 `--dry-run` 时只输出扫描和预计索引摘要，不写入或删除数据库记录。
 - 在非 `dry-run` 时复用 `ACP_DATABASE_URL` 写库。
 - 仅在 `--with-embedding` 时调用外部 provider 并写入 embedding。
 
-CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`files_scanned`、`files_indexed`、`items_estimated`、`items_written`、`items_failed`、`embedding_written`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id`、`provenance_warnings`、`elapsed_seconds` 和 `failures`。
+CLI 输出 JSON 摘要，字段包括 `repo`、`database`、`scope_paths`、`files_scanned`、`files_indexed`、`files_changed`、`files_unchanged`、`files_deleted`、`items_estimated`、`items_written`、`items_deleted`、`items_failed`、`embedding_written`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id`、`provenance_warnings`、`elapsed_seconds` 和 `failures`。
 
 ## MCP 接入
 
