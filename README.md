@@ -148,7 +148,26 @@ Agent 基于 source citation 继续设计、修改或 Review
    uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project
    ```
 
-   `--repo` 在生产使用中应传入稳定的 GitLab code repo 标识，例如规范化后的 `gitlab.example.com/group/project`。不要把带 token、用户名或 `.git` 后缀的原始 remote URL 直接写入索引。
+   参数含义：
+
+   - `--root` 是本次运行要扫描的本机工作区根目录，可以因电脑或 checkout 目录不同而变化。
+   - `--repo` 是写入数据库的稳定 code repo identity，生产使用中应传入规范化后的 `gitlab.example.com/group/project`。不要把带 token、用户名或 `.git` 后缀的原始 remote URL 直接写入索引。
+   - `--path` 是相对 `--root` 的 repo 内文件或目录 scope。推荐使用相对路径；root 内绝对路径只适合本机临时调用，不适合脚本或跨机器复用。
+
+   如需手动增量重建指定文件或目录，可重复传入 `--path`。增量索引会按 `file_hash` 跳过未变化文件，并只清理同 repo、同 scope 且符合 include/exclude 的旧索引：
+
+   ```powershell
+   uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project --path src/main/java/example
+   uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project --path docs/payment.md --dry-run
+   ```
+
+   常见覆盖场景：
+
+   - 新增文件：传入新增文件或所在目录即可写入新索引，例如 `--path src/main/java/example/NewService.java`。
+   - 修改文件：传入该文件即可覆盖同 repo、同 path 的旧 item，例如 `--path src/main/java/example/PaymentService.java`。
+   - 删除文件：需要传入能覆盖旧 path 的 scope，例如删除 `src/main/java/example/PaymentService.java` 后运行 `--path src/main/java/example`，旧 item 才会被清理。
+   - 文件移动：只传入新路径只会写入新 item；还需要传入旧路径所在目录，或传入共同上级目录，例如 `--path src/main/java`。
+   - 整个 repo 换目录：只需改变 `--root`，保持同一个 `--repo` 和 repo 内相对 `--path`。例如从 `D:\Code\YourProject` 换到 `E:\Work\YourProject` 后继续运行 `--root E:\Work\YourProject --repo gitlab.example.com/group/project --path src/main/java/example`。
 
    如需同时写入 embedding，必须补齐 `ACP_EMBEDDING_*` 并显式开启：
 
@@ -188,7 +207,7 @@ Agent 基于 source citation 继续设计、修改或 Review
 
 MCP server 是 Context API 的包装层。它依赖可访问的 HTTP 服务，不直接访问 repository、SQLAlchemy session 或数据库。
 
-真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；摘要包含 `branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
+真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、`--path` 手动增量索引、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；摘要包含 `scope_paths`、`files_changed`、`files_unchanged`、`files_deleted`、`items_deleted`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
 
 同一数据库可以保存多个 GitLab code repo 的索引；`indexed_items` 和 `item_embeddings` 都按 repo 隔离。升级到 repo-scoped identity 后，历史索引数据需要重新执行 `acp-index` 重建，不做旧数据归属猜测。
 

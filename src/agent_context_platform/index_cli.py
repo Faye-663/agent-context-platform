@@ -69,6 +69,7 @@ class Failure:
 @dataclass(frozen=True)
 class IndexedFile:
     path: str
+    file_hash: str
     items: list[IndexedItem]
 
 
@@ -79,6 +80,22 @@ class IndexRunProvenance:
     indexed_at: datetime
     index_batch_id: str
     warnings: list[str]
+
+
+@dataclass(frozen=True)
+class IndexScope:
+    summary_paths: list[str]
+    full_root: bool
+    exact_paths: frozenset[str]
+    path_prefixes: frozenset[str]
+
+
+@dataclass(frozen=True)
+class IncrementalPlan:
+    changed_files: list[IndexedFile]
+    unchanged_paths: list[str]
+    deleted_paths: list[str]
+    items_deleted: int
 
 
 def main() -> None:
@@ -102,6 +119,8 @@ def run(
     repo = args.repo or root.name
     database = _redact_database_url(values.get("ACP_DATABASE_URL"))
     provenance = _build_index_run_provenance(root)
+    include_patterns = tuple(args.include) if args.include else DEFAULT_INCLUDE_PATTERNS
+    exclude_patterns = DEFAULT_EXCLUDE_PATTERNS + tuple(args.exclude or ())
 
     if not root.is_dir():
         failures.append(
@@ -114,6 +133,8 @@ def run(
                 database=database,
                 files_scanned=0,
                 indexed_files=[],
+                incremental_plan=IncrementalPlan([], [], [], 0),
+                scope_paths=[],
                 items_written=0,
                 embedding_written=0,
                 failures=failures,
@@ -123,11 +144,12 @@ def run(
         )
         return 1
 
-    scanned_files = _scan_files(
+    scope = _build_index_scope(root=root, raw_paths=args.path, failures=failures)
+    scanned_files = _scan_scope_files(
         root=root,
-        exclude_patterns=DEFAULT_EXCLUDE_PATTERNS + tuple(args.exclude or ()),
+        scope=scope,
+        exclude_patterns=exclude_patterns,
     )
-    include_patterns = tuple(args.include) if args.include else DEFAULT_INCLUDE_PATTERNS
     indexable_files = [
         path
         for path in scanned_files
@@ -140,9 +162,17 @@ def run(
         failures=failures,
         provenance=provenance,
     )
-    items = [item for indexed_file in indexed_files for item in indexed_file.items]
 
     if args.dry_run:
+        incremental_plan = _preview_incremental_plan(
+            values=values,
+            repo=repo,
+            scope=scope,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            indexed_files=indexed_files,
+            failures=failures,
+        )
         _write_summary(
             output,
             _summary(
@@ -150,6 +180,8 @@ def run(
                 database=database,
                 files_scanned=len(scanned_files),
                 indexed_files=indexed_files,
+                incremental_plan=incremental_plan,
+                scope_paths=scope.summary_paths,
                 items_written=0,
                 embedding_written=0,
                 failures=failures,
@@ -159,6 +191,7 @@ def run(
         )
         return 1 if failures else 0
 
+    incremental_plan = IncrementalPlan([], [], [], 0)
     try:
         settings = _load_cli_settings(values, with_embedding=args.with_embedding)
         database = _redact_database_url(settings.database_url)
@@ -167,9 +200,14 @@ def run(
             with_embedding=args.with_embedding,
             provider_factory=embedding_provider_factory,
         )
-        items_written, embedding_written = _write_items(
+        incremental_plan, items_written, embedding_written = _write_items(
             settings=settings,
-            items=items,
+            repo=repo,
+            scope=scope,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            indexed_files=indexed_files,
+            failures=failures,
             embedding_provider=embedding_provider,
         )
     except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
@@ -192,6 +230,8 @@ def run(
             database=database,
             files_scanned=len(scanned_files),
             indexed_files=indexed_files,
+            incremental_plan=incremental_plan,
+            scope_paths=scope.summary_paths,
             items_written=items_written,
             embedding_written=embedding_written,
             failures=failures,
@@ -232,29 +272,116 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action="append",
         help="Glob pattern to exclude. Excludes take precedence over includes.",
     )
+    parser.add_argument(
+        "--path",
+        action="append",
+        type=Path,
+        help="Relative file or directory path to reindex. Can be passed multiple times.",
+    )
     return parser.parse_args(argv)
+
+
+def _build_index_scope(
+    *,
+    root: Path,
+    raw_paths: Sequence[Path] | None,
+    failures: list[Failure],
+) -> IndexScope:
+    if not raw_paths:
+        return IndexScope(
+            summary_paths=["."],
+            full_root=True,
+            exact_paths=frozenset(),
+            path_prefixes=frozenset(),
+        )
+
+    summary_paths: set[str] = set()
+    exact_paths: set[str] = set()
+    path_prefixes: set[str] = set()
+    root_resolved = root.resolve()
+    full_root = False
+
+    for raw_path in raw_paths:
+        candidate = raw_path if raw_path.is_absolute() else root / raw_path
+        resolved = candidate.resolve(strict=False)
+        try:
+            relative_path = resolved.relative_to(root_resolved).as_posix()
+        except ValueError:
+            failures.append(
+                Failure(
+                    path=str(raw_path),
+                    stage="config",
+                    error="--path must stay within --root",
+                )
+            )
+            continue
+
+        if relative_path == ".":
+            full_root = True
+            summary_paths.add(".")
+            continue
+
+        normalized_path = relative_path.rstrip("/")
+        summary_paths.add(normalized_path)
+        if resolved.is_dir():
+            path_prefixes.add(f"{normalized_path}/")
+        else:
+            exact_paths.add(normalized_path)
+
+    return IndexScope(
+        summary_paths=sorted(summary_paths),
+        full_root=full_root,
+        exact_paths=frozenset(exact_paths),
+        path_prefixes=frozenset(path_prefixes),
+    )
+
+
+def _scan_scope_files(
+    *,
+    root: Path,
+    scope: IndexScope,
+    exclude_patterns: Sequence[str],
+) -> list[Path]:
+    if scope.full_root:
+        return _scan_files(root=root, exclude_patterns=exclude_patterns)
+
+    files: set[Path] = set()
+    for path_prefix in scope.path_prefixes:
+        files.update(
+            _scan_files(root=root / path_prefix, exclude_patterns=exclude_patterns, base_root=root)
+        )
+    for relative_path in scope.exact_paths:
+        path = root / relative_path
+        if path.is_file() and not _is_excluded(relative_path, exclude_patterns):
+            files.add(path)
+    return sorted(files, key=lambda candidate: _relative_posix(candidate, root))
 
 
 def _scan_files(
     *,
     root: Path,
     exclude_patterns: Sequence[str],
+    base_root: Path | None = None,
 ) -> list[Path]:
     files: list[Path] = []
+    relative_root = base_root or root
     for current_root, dirnames, filenames in os.walk(root):
         current_path = Path(current_root)
         dirnames[:] = [
             dirname
             for dirname in dirnames
-            if not _is_excluded(_relative_posix(current_path / dirname, root), exclude_patterns)
+            if not _is_excluded(
+                _relative_posix(current_path / dirname, relative_root),
+                exclude_patterns,
+            )
         ]
         for filename in filenames:
             path = current_path / filename
-            relative_path = _relative_posix(path, root)
+            relative_path = _relative_posix(path, relative_root)
             if _is_excluded(relative_path, exclude_patterns):
                 continue
             files.append(path)
-    return sorted(files, key=lambda candidate: _relative_posix(candidate, root))
+    return sorted(files, key=lambda candidate: _relative_posix(candidate, relative_root))
 
 
 def _index_files(
@@ -284,8 +411,8 @@ def _index_files(
             failures.append(Failure(path=relative_path, stage="index", error=str(exc)))
             continue
 
+        file_hash = _sha256_bytes(raw_content)
         if items:
-            file_hash = _sha256_bytes(raw_content)
             items = [
                 _with_source_provenance(
                     item,
@@ -294,7 +421,7 @@ def _index_files(
                 )
                 for item in items
             ]
-            indexed_files.append(IndexedFile(path=relative_path, items=items))
+        indexed_files.append(IndexedFile(path=relative_path, file_hash=file_hash, items=items))
     return indexed_files
 
 
@@ -345,9 +472,14 @@ def _build_embedding_provider(
 def _write_items(
     *,
     settings: RuntimeSettings,
-    items: Sequence[IndexedItem],
+    repo: str,
+    scope: IndexScope,
+    include_patterns: Sequence[str],
+    exclude_patterns: Sequence[str],
+    indexed_files: Sequence[IndexedFile],
+    failures: Sequence[Failure],
     embedding_provider: EmbeddingProvider | None,
-) -> tuple[int, int]:
+) -> tuple[IncrementalPlan, int, int]:
     engine = make_engine(settings.database_url, echo=settings.sql_echo)
     if engine.dialect.name == "sqlite":
         Base.metadata.create_all(engine)
@@ -355,6 +487,24 @@ def _write_items(
     with Session(engine) as session:
         repository = IndexedItemRepository(session)
         try:
+            incremental_plan = _plan_incremental_changes(
+                repository=repository,
+                repo=repo,
+                scope=scope,
+                include_patterns=include_patterns,
+                exclude_patterns=exclude_patterns,
+                indexed_files=indexed_files,
+                failures=failures,
+            )
+            for path in incremental_plan.deleted_paths:
+                repository.delete_by_path(repo=repo, path=path)
+            items = [
+                item
+                for indexed_file in incremental_plan.changed_files
+                for item in indexed_file.items
+            ]
+            for indexed_file in incremental_plan.changed_files:
+                repository.delete_by_path(repo=repo, path=indexed_file.path)
             if embedding_provider is None:
                 for item in items:
                     repository.save(item)
@@ -365,7 +515,115 @@ def _write_items(
         except Exception:
             session.rollback()
             raise
-    return len(items), embedding_written
+    return incremental_plan, len(items), embedding_written
+
+
+def _preview_incremental_plan(
+    *,
+    values: Mapping[str, str],
+    repo: str,
+    scope: IndexScope,
+    include_patterns: Sequence[str],
+    exclude_patterns: Sequence[str],
+    indexed_files: Sequence[IndexedFile],
+    failures: Sequence[Failure],
+) -> IncrementalPlan:
+    database_url = values.get("ACP_DATABASE_URL")
+    if not database_url or not _database_exists(database_url):
+        return IncrementalPlan(
+            changed_files=[indexed_file for indexed_file in indexed_files if indexed_file.items],
+            unchanged_paths=[],
+            deleted_paths=[],
+            items_deleted=0,
+        )
+    try:
+        engine = make_engine(database_url)
+        with Session(engine) as session:
+            repository = IndexedItemRepository(session)
+            return _plan_incremental_changes(
+                repository=repository,
+                repo=repo,
+                scope=scope,
+                include_patterns=include_patterns,
+                exclude_patterns=exclude_patterns,
+                indexed_files=indexed_files,
+                failures=failures,
+            )
+    except SQLAlchemyError:
+        return IncrementalPlan(
+            changed_files=[indexed_file for indexed_file in indexed_files if indexed_file.items],
+            unchanged_paths=[],
+            deleted_paths=[],
+            items_deleted=0,
+        )
+
+
+def _plan_incremental_changes(
+    *,
+    repository: IndexedItemRepository,
+    repo: str,
+    scope: IndexScope,
+    include_patterns: Sequence[str],
+    exclude_patterns: Sequence[str],
+    indexed_files: Sequence[IndexedFile],
+    failures: Sequence[Failure],
+) -> IncrementalPlan:
+    failed_paths = {
+        failure.path
+        for failure in failures
+        if failure.path is not None and failure.stage in {"read", "index"}
+    }
+    old_paths = {
+        path
+        for path in _list_scope_indexed_paths(repository=repository, repo=repo, scope=scope)
+        if _is_included(path, include_patterns) and not _is_excluded(path, exclude_patterns)
+    }
+    changed_files: list[IndexedFile] = []
+    unchanged_paths: list[str] = []
+    empty_paths: set[str] = set()
+
+    for indexed_file in indexed_files:
+        existing_items = repository.list(repo=repo, path=indexed_file.path)
+        existing_hashes = {item.source.file_hash for item in existing_items}
+        if existing_items and existing_hashes == {indexed_file.file_hash}:
+            unchanged_paths.append(indexed_file.path)
+            continue
+        if indexed_file.items:
+            changed_files.append(indexed_file)
+        else:
+            empty_paths.add(indexed_file.path)
+
+    current_success_paths = {indexed_file.path for indexed_file in indexed_files}
+    deleted_paths = sorted(
+        (old_paths - current_success_paths - failed_paths) | (old_paths & empty_paths)
+    )
+    items_deleted = sum(
+        len(repository.list(repo=repo, path=deleted_path)) for deleted_path in deleted_paths
+    )
+    return IncrementalPlan(
+        changed_files=changed_files,
+        unchanged_paths=sorted(unchanged_paths),
+        deleted_paths=deleted_paths,
+        items_deleted=items_deleted,
+    )
+
+
+def _list_scope_indexed_paths(
+    *,
+    repository: IndexedItemRepository,
+    repo: str,
+    scope: IndexScope,
+) -> list[str]:
+    if scope.full_root:
+        return repository.list_paths(repo=repo)
+
+    paths: set[str] = set()
+    for path_prefix in scope.path_prefixes:
+        paths.update(repository.list_paths(repo=repo, path_prefix=path_prefix))
+    for path in scope.exact_paths:
+        if repository.list(repo=repo, path=path):
+            paths.add(path)
+    return sorted(paths)
 
 
 def _summary(
@@ -374,6 +632,8 @@ def _summary(
     database: str | None,
     files_scanned: int,
     indexed_files: Sequence[IndexedFile],
+    incremental_plan: IncrementalPlan,
+    scope_paths: Sequence[str],
     items_written: int,
     embedding_written: int,
     failures: Sequence[Failure],
@@ -384,10 +644,15 @@ def _summary(
     return {
         "repo": repo,
         "database": database,
+        "scope_paths": list(scope_paths),
         "files_scanned": files_scanned,
-        "files_indexed": len(indexed_files),
+        "files_indexed": sum(1 for indexed_file in indexed_files if indexed_file.items),
+        "files_changed": len(incremental_plan.changed_files),
+        "files_unchanged": len(incremental_plan.unchanged_paths),
+        "files_deleted": len(incremental_plan.deleted_paths),
         "items_estimated": items_estimated,
         "items_written": items_written,
+        "items_deleted": incremental_plan.items_deleted,
         "items_failed": len(failures),
         "embedding_written": embedding_written,
         "branch": provenance.branch,
@@ -500,6 +765,19 @@ def _redact_database_url(database_url: str | None) -> str | None:
         return make_url(database_url).render_as_string(hide_password=True)
     except Exception:  # noqa: BLE001 - summary should not fail while reporting config.
         return database_url
+
+
+def _database_exists(database_url: str) -> bool:
+    try:
+        url = make_url(database_url)
+    except Exception:  # noqa: BLE001 - invalid config will be reported by non-dry-run paths.
+        return False
+    if url.drivername.startswith("sqlite"):
+        database = url.database
+        if not database or database in {":memory:", ""}:
+            return False
+        return Path(database).exists()
+    return True
 
 
 if __name__ == "__main__":

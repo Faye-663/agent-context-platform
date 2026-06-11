@@ -49,9 +49,11 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 ### 2. 可控索引
 
 - 真实工程入库只能通过离线批处理入口 `acp-index` 完成。
-- `acp-index` 必须支持 `dry-run`、include/exclude、显式 repo 标识和 JSON 摘要。
-- 生产索引应显式传入稳定的 GitLab code repo 标识，不能依赖本地目录名表达多仓隔离。
+- `acp-index` 必须支持 `dry-run`、include/exclude、显式 repo 标识、按 `--path` 手动增量索引和 JSON 摘要。
+- `--root` 表示本机扫描根目录，允许在不同电脑或不同 checkout 目录变化；生产索引应显式传入稳定的 GitLab code repo 标识 `--repo`，不能依赖本地目录名表达多仓隔离。
+- `--path` 表示相对 `--root` 的 repo 内文件或目录 scope；跨机器脚本应使用相对路径，不应把本机绝对路径作为长期配置。
 - `acp-index` 必须为成功索引的 item 写入 file hash、index time 和 index batch；Git branch / commit 以 best-effort 方式采集，采集失败不得阻断非 Git 样本或普通索引。
+- `acp-index --path` 必须只清理同 repo、同 scope 且符合 include/exclude 的旧索引；失败文件保留旧索引，避免解析偶发失败导致证据丢失。
 - `acp-index` 默认不调用外部 embedding provider；只有显式传入 `--with-embedding` 才写入 embedding。
 - Alembic 和 `acp-index` 只读取当前进程环境变量，不自动加载 `.env`。
 

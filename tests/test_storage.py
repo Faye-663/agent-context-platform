@@ -170,6 +170,86 @@ def test_repository_rejects_persisted_items_without_repo() -> None:
             raise AssertionError("expected missing repo to be rejected")
 
 
+def test_repository_lists_and_deletes_items_by_repo_path() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+    payment_item = make_item(
+        "code:PaymentService.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
+            path="src/main/java/example/PaymentService.java",
+            start_line=10,
+            end_line=30,
+            symbol="PaymentService.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+    order_item = make_item(
+        "code:PaymentService.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo="gitlab.example.com/orders/order-service",
+            path="src/main/java/example/PaymentService.java",
+            start_line=10,
+            end_line=30,
+            symbol="PaymentService.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+    other_path_item = make_item(
+        "doc:Payment Guide",
+        SourceCitation(
+            source_type=SourceType.DOC,
+            repo="gitlab.example.com/payments/payment-service",
+            path="docs/payment.md",
+            start_line=1,
+            end_line=8,
+            heading_path="Payment Guide",
+        ),
+        {},
+    )
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(payment_item, embedding=[1.0, 0.0, 0.0], embedding_identity=identity)
+        repository.save(order_item, embedding=[0.0, 1.0, 0.0], embedding_identity=identity)
+        repository.save(other_path_item)
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+
+        assert repository.list_paths(
+            repo="gitlab.example.com/payments/payment-service",
+            path_prefix="src/main/java/example/",
+        ) == ["src/main/java/example/PaymentService.java"]
+        assert repository.delete_by_path(
+            repo="gitlab.example.com/payments/payment-service",
+            path="src/main/java/example/PaymentService.java",
+        ) == 1
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+
+        assert repository.list(repo="gitlab.example.com/payments/payment-service") == [
+            other_path_item
+        ]
+        assert repository.list(repo="gitlab.example.com/orders/order-service") == [
+            order_item
+        ]
+        assert repository.list_with_embeddings(
+            repo="gitlab.example.com/payments/payment-service",
+            embedding_identity=identity,
+        ) == [(other_path_item, None)]
+        assert repository.list_with_embeddings(
+            repo="gitlab.example.com/orders/order-service",
+            embedding_identity=identity,
+        ) == [(order_item, [0.0, 1.0, 0.0])]
+
+
 def test_postgresql_table_contains_pgvector_embedding_column() -> None:
     embedding_type = ItemEmbeddingRecord.__table__.c.embedding.type.compile(
         dialect=postgresql.dialect()

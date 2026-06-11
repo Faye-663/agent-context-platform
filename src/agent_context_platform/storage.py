@@ -240,6 +240,52 @@ class IndexedItemRepository:
         records = self.session.scalars(statement.order_by(IndexedItemRecord.id)).all()
         return [record.to_indexed_item() for record in records]
 
+    def list_paths(self, *, repo: str, path_prefix: str | None = None) -> list[str]:
+        statement = (
+            select(IndexedItemRecord.path)
+            .where(IndexedItemRecord.repo == repo)
+            .where(IndexedItemRecord.path.is_not(None))
+            .distinct()
+        )
+        if path_prefix is not None:
+            statement = statement.where(IndexedItemRecord.path.startswith(path_prefix))
+        paths = self.session.scalars(statement.order_by(IndexedItemRecord.path)).all()
+        return [path for path in paths if path is not None]
+
+    def delete_by_path(self, *, repo: str, path: str) -> int:
+        records = self.session.scalars(
+            select(IndexedItemRecord)
+            .where(IndexedItemRecord.repo == repo)
+            .where(IndexedItemRecord.path == path)
+            .order_by(IndexedItemRecord.id)
+        ).all()
+        return self._delete_records(records)
+
+    def delete_by_path_prefix(self, *, repo: str, path_prefix: str) -> int:
+        records = self.session.scalars(
+            select(IndexedItemRecord)
+            .where(IndexedItemRecord.repo == repo)
+            .where(IndexedItemRecord.path.startswith(path_prefix))
+            .order_by(IndexedItemRecord.id)
+        ).all()
+        return self._delete_records(records)
+
+    def _delete_records(self, records: Sequence[IndexedItemRecord]) -> int:
+        if not records:
+            return 0
+        # 测试和轻量 SQLite 路径不保证开启外键级联；先删 embedding，避免留下孤儿向量。
+        for record in records:
+            embedding_records = self.session.scalars(
+                select(ItemEmbeddingRecord)
+                .where(ItemEmbeddingRecord.repo == record.repo)
+                .where(ItemEmbeddingRecord.item_id == record.id)
+            ).all()
+            for embedding_record in embedding_records:
+                self.session.delete(embedding_record)
+            self.session.delete(record)
+        self.session.flush()
+        return len(records)
+
     def list_with_embeddings(
         self,
         *,
