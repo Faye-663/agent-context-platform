@@ -11,6 +11,7 @@ from agent_context_platform.models import (
     SearchResult,
     SourceCitation,
     SourceType,
+    SymbolCatalogEntry,
     TaskContext,
 )
 
@@ -148,6 +149,50 @@ def test_source_citation_serializes_provenance_fields() -> None:
     assert payload["file_hash"] == "f" * 64
     assert payload["indexed_at"] == "2026-06-10T08:30:00Z"
     assert payload["index_batch_id"] == "batch-001"
+
+
+def test_symbol_catalog_entry_serializes_identity_and_provenance() -> None:
+    indexed_at = datetime(2026, 6, 10, 8, 30, tzinfo=UTC)
+
+    symbol = SymbolCatalogEntry(
+        symbol_id="java:method:example.PaymentService.build(PaymentRequest)",
+        repo="gitlab.example.com/payments/payment-service",
+        path="src/main/java/example/PaymentService.java",
+        language="java",
+        kind="method",
+        name="build",
+        qualified_name="example.PaymentService.build(PaymentRequest)",
+        start_line=12,
+        end_line=18,
+        source_item_id="code:src/main/java/example/PaymentService.java:PaymentService.build",
+        branch="main",
+        commit_sha="abc123",
+        file_hash="f" * 64,
+        indexed_at=indexed_at,
+        index_batch_id="batch-001",
+    )
+
+    payload = symbol.model_dump(mode="json")
+
+    assert payload["symbol_id"] == "java:method:example.PaymentService.build(PaymentRequest)"
+    assert payload["repo"] == "gitlab.example.com/payments/payment-service"
+    assert payload["qualified_name"] == "example.PaymentService.build(PaymentRequest)"
+    assert payload["indexed_at"] == "2026-06-10T08:30:00Z"
+
+
+def test_symbol_catalog_entry_rejects_invalid_line_range() -> None:
+    with pytest.raises(ValidationError):
+        SymbolCatalogEntry(
+            symbol_id="java:field:example.PaymentService.status",
+            repo="gitlab.example.com/payments/payment-service",
+            path="src/main/java/example/PaymentService.java",
+            language="java",
+            kind="field",
+            name="status",
+            qualified_name="example.PaymentService.status",
+            start_line=20,
+            end_line=12,
+        )
 
 
 def test_task_context_requires_citation_summary_for_all_results() -> None:

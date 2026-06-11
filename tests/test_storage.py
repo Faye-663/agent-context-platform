@@ -7,7 +7,13 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from agent_context_platform.embeddings import EmbeddingIdentity
-from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
+from agent_context_platform.models import (
+    AssetType,
+    IndexedItem,
+    SourceCitation,
+    SourceType,
+    SymbolCatalogEntry,
+)
 from agent_context_platform.storage import (
     Base,
     IndexedItemRepository,
@@ -25,6 +31,34 @@ def make_item(item_id: str, source: SourceCitation, metadata: dict[str, str]) ->
         summary=f"{item_id} summary",
         metadata=metadata,
         source=source,
+    )
+
+
+def make_symbol(
+    symbol_id: str,
+    *,
+    repo: str = "gitlab.example.com/payments/payment-service",
+    kind: str = "method",
+    name: str = "build",
+    qualified_name: str = "example.PaymentService.build(PaymentRequest)",
+    source_item_id: str = "code:src/main/java/example/PaymentService.java:PaymentService.build",
+) -> SymbolCatalogEntry:
+    return SymbolCatalogEntry(
+        symbol_id=symbol_id,
+        repo=repo,
+        path="src/main/java/example/PaymentService.java",
+        language="java",
+        kind=kind,
+        name=name,
+        qualified_name=qualified_name,
+        start_line=10,
+        end_line=18,
+        source_item_id=source_item_id,
+        branch="main",
+        commit_sha="abc123",
+        file_hash="f" * 64,
+        indexed_at=datetime(2026, 6, 10, 8, 30, tzinfo=UTC),
+        index_batch_id="batch-001",
     )
 
 
@@ -96,6 +130,88 @@ def test_repository_inserts_and_reads_three_asset_types() -> None:
         assert repository.list(language="java") == [code]
         assert repository.list(symbol_type="method") == [code]
         assert repository.list(table="payment_order") == [schema]
+
+
+def test_repository_saves_and_looks_up_symbol_catalog_entries() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    item = make_item(
+        "code:src/main/java/example/PaymentService.java:PaymentService.build",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo="gitlab.example.com/payments/payment-service",
+            path="src/main/java/example/PaymentService.java",
+            start_line=10,
+            end_line=18,
+            symbol="PaymentService.build",
+        ),
+        {"language": "java", "symbol_type": "method"},
+    )
+    symbol = make_symbol("java:method:example.PaymentService.build(PaymentRequest)")
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(item)
+        assert repository.save_symbols([symbol]) == 1
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+
+        assert repository.find_symbols_exact(
+            repo="gitlab.example.com/payments/payment-service",
+            query="example.PaymentService.build(PaymentRequest)",
+        ) == [symbol]
+        assert repository.find_symbols_prefix(
+            repo="gitlab.example.com/payments/payment-service",
+            query="example.Payment",
+            kinds=["method"],
+            language="java",
+        ) == [symbol]
+        assert repository.find_symbols_prefix(
+            repo="gitlab.example.com/orders/order-service",
+            query="example.Payment",
+        ) == []
+
+
+def test_repository_deletes_symbols_by_repo_path_without_touching_other_repos() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    payment_symbol = make_symbol(
+        "java:class:example.PaymentService",
+        kind="class",
+        source_item_id=None,
+    )
+    order_symbol = make_symbol(
+        "java:class:example.PaymentService",
+        repo="gitlab.example.com/orders/order-service",
+        kind="class",
+        source_item_id=None,
+    )
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save_symbols([payment_symbol, order_symbol])
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        assert repository.delete_symbols_by_path(
+            repo="gitlab.example.com/payments/payment-service",
+            path="src/main/java/example/PaymentService.java",
+        ) == 1
+        session.commit()
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        assert repository.find_symbols_prefix(
+            repo="gitlab.example.com/payments/payment-service",
+            query="example.Payment",
+        ) == []
+        assert repository.find_symbols_prefix(
+            repo="gitlab.example.com/orders/order-service",
+            query="example.Payment",
+        ) == [order_symbol]
 
 
 def test_repository_keeps_same_item_id_isolated_by_repo() -> None:

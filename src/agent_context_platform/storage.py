@@ -24,7 +24,13 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from agent_context_platform.embeddings import EmbeddingIdentity
-from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
+from agent_context_platform.models import (
+    AssetType,
+    IndexedItem,
+    SourceCitation,
+    SourceType,
+    SymbolCatalogEntry,
+)
 
 
 JsonType = JSON().with_variant(JSONB, "postgresql")
@@ -169,6 +175,79 @@ class ItemEmbeddingRecord(Base):
     embedding: Mapped[list[float]] = mapped_column(EmbeddingType, nullable=False)
 
 
+class SymbolRecord(Base):
+    """symbols 表的 ORM 映射。
+
+    只保存 symbol definition catalog；调用关系、继承关系等 edge 后续由 graph 任务单独建模。
+    """
+
+    __tablename__ = "symbols"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["repo", "source_item_id"],
+            ["indexed_items.repo", "indexed_items.id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    repo: Mapped[str] = mapped_column(String(255), primary_key=True)
+    symbol_id: Mapped[str] = mapped_column(String(1000), primary_key=True)
+    path: Mapped[str] = mapped_column(String(1000), index=True)
+    language: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    kind: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(500), index=True)
+    qualified_name: Mapped[str] = mapped_column(String(1000), index=True)
+    start_line: Mapped[int | None] = mapped_column(nullable=True)
+    end_line: Mapped[int | None] = mapped_column(nullable=True)
+    source_item_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    index_batch_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    @classmethod
+    def from_symbol(cls, symbol: SymbolCatalogEntry) -> "SymbolRecord":
+        return cls(
+            repo=symbol.repo,
+            symbol_id=symbol.symbol_id,
+            path=symbol.path,
+            language=symbol.language,
+            kind=symbol.kind,
+            name=symbol.name,
+            qualified_name=symbol.qualified_name,
+            start_line=symbol.start_line,
+            end_line=symbol.end_line,
+            source_item_id=symbol.source_item_id,
+            branch=symbol.branch,
+            commit_sha=symbol.commit_sha,
+            file_hash=symbol.file_hash,
+            indexed_at=symbol.indexed_at,
+            index_batch_id=symbol.index_batch_id,
+        )
+
+    def to_symbol(self) -> SymbolCatalogEntry:
+        return SymbolCatalogEntry(
+            repo=self.repo,
+            symbol_id=self.symbol_id,
+            path=self.path,
+            language=self.language,
+            kind=self.kind,
+            name=self.name,
+            qualified_name=self.qualified_name,
+            start_line=self.start_line,
+            end_line=self.end_line,
+            source_item_id=self.source_item_id,
+            branch=self.branch,
+            commit_sha=self.commit_sha,
+            file_hash=self.file_hash,
+            indexed_at=_normalize_indexed_at(self.indexed_at),
+            index_batch_id=self.index_batch_id,
+        )
+
+
 class IndexedItemRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -269,6 +348,124 @@ class IndexedItemRepository:
             .order_by(IndexedItemRecord.id)
         ).all()
         return self._delete_records(records)
+
+    def save_symbols(self, symbols: Sequence[SymbolCatalogEntry]) -> int:
+        for symbol in symbols:
+            if not symbol.repo:
+                raise ValueError("symbol repo is required for persistence")
+            self.session.merge(SymbolRecord.from_symbol(symbol))
+        self.session.flush()
+        return len(symbols)
+
+    def list_symbols(
+        self,
+        *,
+        repo: str,
+        path: str | None = None,
+        path_prefix: str | None = None,
+        language: str | None = None,
+        kinds: Sequence[str] | None = None,
+    ) -> list[SymbolCatalogEntry]:
+        statement = _apply_symbol_filters(
+            select(SymbolRecord),
+            repo=repo,
+            language=language,
+            kinds=kinds,
+            path_prefix=path_prefix,
+        )
+        if path is not None:
+            statement = statement.where(SymbolRecord.path == path)
+        records = self.session.scalars(
+            statement.order_by(SymbolRecord.qualified_name, SymbolRecord.symbol_id)
+        ).all()
+        return [record.to_symbol() for record in records]
+
+    def find_symbols_exact(
+        self,
+        *,
+        repo: str,
+        query: str,
+        language: str | None = None,
+        kinds: Sequence[str] | None = None,
+        path_prefix: str | None = None,
+        limit: int = 20,
+    ) -> list[SymbolCatalogEntry]:
+        if limit <= 0 or not query:
+            return []
+        statement = _apply_symbol_filters(
+            select(SymbolRecord),
+            repo=repo,
+            language=language,
+            kinds=kinds,
+            path_prefix=path_prefix,
+        ).where(
+            or_(
+                SymbolRecord.name == query,
+                SymbolRecord.qualified_name == query,
+                SymbolRecord.symbol_id == query,
+            )
+        )
+        records = self.session.scalars(
+            statement.order_by(SymbolRecord.qualified_name, SymbolRecord.symbol_id).limit(
+                limit
+            )
+        ).all()
+        return [record.to_symbol() for record in records]
+
+    def find_symbols_prefix(
+        self,
+        *,
+        repo: str,
+        query: str,
+        language: str | None = None,
+        kinds: Sequence[str] | None = None,
+        path_prefix: str | None = None,
+        limit: int = 20,
+    ) -> list[SymbolCatalogEntry]:
+        if limit <= 0 or not query:
+            return []
+        statement = _apply_symbol_filters(
+            select(SymbolRecord),
+            repo=repo,
+            language=language,
+            kinds=kinds,
+            path_prefix=path_prefix,
+        ).where(
+            or_(
+                SymbolRecord.name.startswith(query),
+                SymbolRecord.qualified_name.startswith(query),
+            )
+        )
+        records = self.session.scalars(
+            statement.order_by(SymbolRecord.qualified_name, SymbolRecord.symbol_id).limit(
+                limit
+            )
+        ).all()
+        return [record.to_symbol() for record in records]
+
+    def delete_symbols_by_path(self, *, repo: str, path: str) -> int:
+        records = self.session.scalars(
+            select(SymbolRecord)
+            .where(SymbolRecord.repo == repo)
+            .where(SymbolRecord.path == path)
+            .order_by(SymbolRecord.symbol_id)
+        ).all()
+        for record in records:
+            self.session.delete(record)
+        self.session.flush()
+        return len(records)
+
+    def delete_symbols_by_path_prefix(self, *, repo: str, path_prefix: str) -> int:
+        records = self.session.scalars(
+            select(SymbolRecord)
+            .where(SymbolRecord.repo == repo)
+            .where(SymbolRecord.path.startswith(path_prefix))
+            .order_by(SymbolRecord.symbol_id)
+        ).all()
+        for record in records:
+            self.session.delete(record)
+        self.session.flush()
+        return len(records)
 
     def _delete_records(self, records: Sequence[IndexedItemRecord]) -> int:
         if not records:
@@ -529,6 +726,24 @@ def _apply_item_filters(
         statement = statement.where(IndexedItemRecord.symbol_type.in_(symbol_types))
     if table is not None:
         statement = statement.where(IndexedItemRecord.table_name == table)
+    return statement
+
+
+def _apply_symbol_filters(
+    statement,
+    *,
+    repo: str,
+    language: str | None,
+    kinds: Sequence[str] | None,
+    path_prefix: str | None,
+):
+    statement = statement.where(SymbolRecord.repo == repo)
+    if language is not None:
+        statement = statement.where(SymbolRecord.language == language)
+    if kinds:
+        statement = statement.where(SymbolRecord.kind.in_(kinds))
+    if path_prefix is not None:
+        statement = statement.where(SymbolRecord.path.startswith(path_prefix))
     return statement
 
 
