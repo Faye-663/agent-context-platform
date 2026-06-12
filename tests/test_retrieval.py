@@ -3,8 +3,15 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from agent_context_platform.aliases import DomainVocabulary
 from agent_context_platform.embeddings import EmbeddingIdentity
-from agent_context_platform.models import AssetType, IndexedItem, SourceCitation, SourceType
+from agent_context_platform.models import (
+    AssetType,
+    IndexedItem,
+    SourceCitation,
+    SourceType,
+    SymbolCatalogEntry,
+)
 from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
 from agent_context_platform.storage import Base, IndexedItemRepository
 
@@ -335,6 +342,125 @@ def test_hybrid_search_generates_query_embedding_with_query_mode() -> None:
     assert [result.item.id for result in results] == ["code:VectorOnlyService.print"]
     assert provider.query_requests == ["semantic invoice"]
     assert provider.document_requests == []
+
+
+def test_hybrid_search_expands_domain_aliases_for_lexical_recall() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+
+    repository.save(
+        make_item(
+            "code:PaymentApprovalService.approve",
+            AssetType.CODE,
+            "PaymentApprovalService.approve",
+            "cashflow approval validation for pending payment requests",
+            SourceCitation(
+                source_type=SourceType.CODE,
+                repo="gitlab.example.com/payments/payment-service",
+                path="src/main/java/example/PaymentApprovalService.java",
+                start_line=12,
+                end_line=40,
+                symbol="PaymentApprovalService.approve",
+            ),
+            {"language": "java", "symbol_type": "method"},
+        )
+    )
+    session.commit()
+
+    service = HybridSearchService(
+        repository,
+        domain_vocabulary=DomainVocabulary.from_mapping(
+            {
+                "aliases": [
+                    {
+                        "term": "现金流审批",
+                        "expands_to": [
+                            "cashflow approval",
+                            "PaymentApprovalService",
+                        ],
+                    }
+                ]
+            }
+        ),
+    )
+    results = service.search(
+        HybridSearchQuery(
+            query="现金流审批",
+            asset_type=AssetType.CODE,
+            filters={"repo": "gitlab.example.com/payments/payment-service"},
+        )
+    )
+
+    assert [result.item.id for result in results] == [
+        "code:PaymentApprovalService.approve"
+    ]
+    assert results[0].score_parts is not None
+    assert results[0].score_parts["lexical"] > 0
+    assert service.last_trace is not None
+    assert service.last_trace.alias_expansions == (
+        "现金流审批 -> cashflow approval, PaymentApprovalService",
+    )
+
+
+def test_hybrid_search_uses_symbol_catalog_when_text_does_not_match() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    repo = "gitlab.example.com/payments/payment-service"
+    item = repository.save(
+        make_item(
+            "code:DomainHandler.handle",
+            AssetType.CODE,
+            "DomainHandler.handle",
+            "validate request state and record audit decision",
+            SourceCitation(
+                source_type=SourceType.CODE,
+                repo=repo,
+                path="src/main/java/example/DomainHandler.java",
+                start_line=12,
+                end_line=40,
+                symbol="DomainHandler.handle",
+            ),
+            {"language": "java", "symbol_type": "method"},
+        )
+    )
+    repository.save_symbols(
+        [
+            SymbolCatalogEntry(
+                repo=repo,
+                symbol_id="java:class:example.PaymentApprovalService",
+                path="src/main/java/example/DomainHandler.java",
+                language="java",
+                kind="class",
+                name="PaymentApprovalService",
+                qualified_name="example.PaymentApprovalService",
+                start_line=1,
+                end_line=80,
+                source_item_id=item.id,
+            )
+        ]
+    )
+    session.commit()
+
+    service = HybridSearchService(repository)
+    results = service.search(
+        HybridSearchQuery(
+            query="PaymentApprovalService",
+            asset_type=AssetType.CODE,
+            filters={"repo": repo, "language": "java"},
+        )
+    )
+
+    assert [result.item.id for result in results] == ["code:DomainHandler.handle"]
+    assert results[0].score_parts is not None
+    assert results[0].score_parts["symbol"] == 1.0
+    assert "symbol exact hit" in results[0].match_reason
+    assert service.last_trace is not None
+    assert [hit.channel for hit in service.last_trace.hits] == ["symbol"]
+    assert service.last_trace.fused[0].channel_ranks == {"symbol": 1}
 
 
 class QueryEmbeddingProvider:

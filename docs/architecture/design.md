@@ -64,7 +64,9 @@ IndexedItemRepository + Symbol Catalog + optional EmbeddingProvider
 - `constraints`：当前主要用于 `repo`、`language` 等跨检索约束。
 - `request_id`：可选。
 
-API 层只负责请求校验、错误 envelope 和日志包装，检索由 `HybridSearchService` 执行，上下文聚合由 `TaskContextBuilder` 执行。
+`constraints.token_budget` 可选控制 `build-task-context` 返回上下文规模；超出预算时优先保留更靠前的检索证据，并通过 `missing_context` / `risks` 暴露被裁剪后的上下文缺口。
+
+API 层只负责请求校验、错误 envelope 和日志包装，检索由 `HybridSearchService` 执行，上下文检索编排由 `TaskContextBuilder` 执行，结果裁剪、缺口判断、风险和 citation 汇总由 `ContextComposer` 执行。
 
 ## 数据模型
 
@@ -88,7 +90,7 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 
 ## 检索与存储
 
-`HybridSearchService` 组合关键词、向量和结构化过滤。provider/model/dimension 明确时，repository 层使用 PostgreSQL / pgvector 执行 query embedding 相似度排序；SQLite 路径保留为单元测试和轻量验证替代实现。
+`HybridSearchService` 组合 lexical、vector 和 symbol 多路召回，并使用 RRF 融合候选。lexical 召回使用工程 tokenization 和 BM25-like 字段加权，覆盖中文、camelCase / PascalCase、snake_case、路径、表名、字段名和 symbol。vector 召回在 provider/model/dimension 明确时由 repository 层使用 PostgreSQL / pgvector 执行 query embedding 相似度排序；SQLite 路径保留为单元测试和轻量验证替代实现。symbol 召回消费 `symbols` catalog，并按 `(repo, item_id)` 与其他通道去重。
 
 `IndexedItemRepository` 保存：
 
@@ -98,7 +100,9 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 
 查询和写入必须使用匹配的 embedding identity，避免不同向量空间混用。
 
-symbol catalog 只保存 definitions，不保存 method call、field access、type reference、extends / implements 等 graph edge。当前 repository 提供 exact / prefix lookup，fuzzy、RRF、trace 和 ranking 属于检索层后续任务。
+symbol catalog 只保存 definitions，不保存 method call、field access、type reference、extends / implements 等 graph edge。当前检索层会读取 symbol catalog 做 exact / prefix / lightweight fuzzy recall，并把命中原因写入 `SearchResult.match_reason` 和内部 retrieval trace。
+
+领域词别名通过可选 `ACP_ALIAS_FILE` 配置加载，格式为 `{"aliases":[{"term":"现金流审批","expands_to":["cashflow approval","PaymentApprovalService"]}]}`。未配置时不做 query expansion；配置后 alias expansion 会进入检索 tokenization 和内部 trace。
 
 检索可以通过 `repo` filter 限定候选集。未传 repo 时保持兼容的跨 repo 搜索；如果运行时开启 `ACP_REQUIRE_REPO_FILTER`，请求必须携带 repo 或由 `ACP_DEFAULT_REPO` 注入。
 
@@ -145,6 +149,7 @@ MCP wrapper 只通过 `ContextApiToolClient` 调用 Context API，不直连 repo
 - `ACP_SQL_ECHO`
 - `ACP_DEFAULT_REPO`
 - `ACP_REQUIRE_REPO_FILTER`
+- `ACP_ALIAS_FILE`
 - `ACP_CONTEXT_API_BASE_URL`
 - `ACP_MCP_TRANSPORT`
 - `ACP_MCP_HOST`

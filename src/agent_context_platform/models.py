@@ -161,7 +161,7 @@ class SearchResult(BaseModel):
     """一次检索命中的返回项。
 
     例子：item 是 PaymentService.build，score 是综合分，
-    score_parts 可以解释 keyword/vector 各贡献多少。
+    score_parts 可以解释 lexical/vector/symbol/RRF 各贡献多少。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -169,7 +169,7 @@ class SearchResult(BaseModel):
     item: IndexedItem
     # score 是最终排序分，当前由 retrieval.py 组合 keyword 与 vector 得出。
     score: float = Field(ge=0)
-    # score_parts 用于调试召回质量，例如 {"keyword": 0.7, "vector": 0.3}。
+    # score_parts 用于调试召回质量，例如 {"lexical": 0.7, "symbol": 1.0}。
     score_parts: dict[str, float] | None = None
     # match_reason 是给人看的命中解释，不作为排序依据。
     match_reason: str = Field(min_length=1)
