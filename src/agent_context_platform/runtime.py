@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import sessionmaker
 
+from agent_context_platform.aliases import DomainVocabulary
 from agent_context_platform.api import create_app
 from agent_context_platform.embeddings import (
     DashScopeEmbeddingProvider,
@@ -71,6 +72,8 @@ class RuntimeSettings(BaseModel):
     default_repo: str | None = None
     # require_repo_filter 开启后，请求必须显式携带 repo 或由 default_repo 注入。
     require_repo_filter: bool = False
+    # alias_file 可选加载领域词/中英文/业务术语映射，用于 query expansion。
+    alias_file: str | None = None
     # embedding 为空时仍可做 keyword 检索；非空时 search 会启用 query embedding。
     embedding: EmbeddingProviderSettings | None = None
 
@@ -91,6 +94,7 @@ def load_runtime_settings(environ: Mapping[str, str] | None = None) -> RuntimeSe
                 values.get("ACP_REQUIRE_REPO_FILTER", "false"),
                 "ACP_REQUIRE_REPO_FILTER",
             ),
+            alias_file=_optional_env_value(values.get("ACP_ALIAS_FILE")),
             embedding=embedding,
         )
     except ValidationError as exc:
@@ -115,6 +119,7 @@ def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
     if resolved_settings.embedding is not None:
         # embedding provider 是可选依赖；没有配置时 API 仍可走 keyword-only 检索。
         embedding_provider = build_embedding_provider(resolved_settings.embedding)
+    domain_vocabulary = _load_domain_vocabulary(resolved_settings.alias_file)
 
     @contextmanager
     def search_service_scope() -> Iterator[HybridSearchService]:
@@ -123,6 +128,7 @@ def create_runtime_app(settings: RuntimeSettings | None = None) -> FastAPI:
             yield HybridSearchService(
                 IndexedItemRepository(session),
                 embedding_provider,
+                domain_vocabulary,
             )
 
     app = create_app(
@@ -257,7 +263,17 @@ def build_embedding_provider(settings: EmbeddingProviderSettings) -> EmbeddingPr
     )
 
 
+def _load_domain_vocabulary(alias_file: str | None) -> DomainVocabulary:
+    if alias_file is None:
+        return DomainVocabulary.empty()
+    try:
+        return DomainVocabulary.from_file(alias_file)
+    except OSError as exc:
+        raise RuntimeConfigError(f"ACP_ALIAS_FILE 读取失败：{exc}") from exc
+    except ValueError as exc:
+        raise RuntimeConfigError(f"ACP_ALIAS_FILE 格式错误：{exc}") from exc
+
+
 def _configure_logging(log_level: str) -> None:
     logging.getLogger("agent_context_platform").setLevel(log_level)
-
 

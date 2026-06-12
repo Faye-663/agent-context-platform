@@ -32,6 +32,7 @@ def test_load_runtime_settings_reads_runtime_and_embedding_values() -> None:
             "ACP_SQL_ECHO": "true",
             "ACP_DEFAULT_REPO": "gitlab.example.com/payments/payment-service",
             "ACP_REQUIRE_REPO_FILTER": "true",
+            "ACP_ALIAS_FILE": "config/domain-aliases.json",
             "ACP_EMBEDDING_BASE_URL": "https://embedding.example.com/v1",
             "ACP_EMBEDDING_API_KEY": "test-key",
             "ACP_EMBEDDING_MODEL": "embedding-model",
@@ -45,6 +46,7 @@ def test_load_runtime_settings_reads_runtime_and_embedding_values() -> None:
     assert settings.sql_echo is True
     assert settings.default_repo == "gitlab.example.com/payments/payment-service"
     assert settings.require_repo_filter is True
+    assert settings.alias_file == "config/domain-aliases.json"
     assert settings.embedding is not None
     assert settings.embedding.dimension == 1024
     assert settings.embedding.batch_size == 32
@@ -234,6 +236,73 @@ def test_create_runtime_app_applies_default_repo_filter(tmp_path) -> None:
     ]
 
 
+def test_create_runtime_app_loads_domain_alias_file(tmp_path) -> None:
+    alias_file = tmp_path / "aliases.json"
+    alias_file.write_text(
+        """
+        {
+          "aliases": [
+            {
+              "term": "现金流审批",
+              "expands_to": ["cashflow approval", "PaymentApprovalService"]
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(
+        database_url=f"sqlite:///{tmp_path / 'runtime.db'}",
+        environment="test",
+        alias_file=str(alias_file),
+    )
+    app = create_runtime_app(settings)
+    Base.metadata.create_all(app.state.engine)
+
+    with Session(app.state.engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(
+            IndexedItem(
+                id="code:PaymentApprovalService.approve",
+                asset_type=AssetType.CODE,
+                title="PaymentApprovalService.approve",
+                content="cashflow approval validation",
+                summary="支付审批实现。",
+                metadata={"language": "java", "symbol_type": "method"},
+                source=SourceCitation(
+                    source_type=SourceType.CODE,
+                    repo="gitlab.example.com/payments/payment-service",
+                    path="src/main/java/example/PaymentApprovalService.java",
+                    start_line=10,
+                    end_line=30,
+                    symbol="PaymentApprovalService.approve",
+                ),
+            )
+        )
+        session.commit()
+
+    client = TestClient(app)
+    response = client.post("/search-code", json={"query": "现金流审批"})
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["source"]["symbol"] == (
+        "PaymentApprovalService.approve"
+    )
+
+
+def test_create_runtime_app_rejects_invalid_domain_alias_file(tmp_path) -> None:
+    alias_file = tmp_path / "aliases.json"
+    alias_file.write_text("[]", encoding="utf-8")
+    settings = RuntimeSettings(
+        database_url=f"sqlite:///{tmp_path / 'runtime.db'}",
+        environment="test",
+        alias_file=str(alias_file),
+    )
+
+    with pytest.raises(RuntimeConfigError, match="ACP_ALIAS_FILE"):
+        create_runtime_app(settings)
+
+
 def test_create_runtime_app_requires_repo_filter_when_configured(tmp_path) -> None:
     settings = RuntimeSettings(
         database_url=f"sqlite:///{tmp_path / 'runtime.db'}",
@@ -258,4 +327,3 @@ def test_asgi_module_exposes_importable_app(monkeypatch, tmp_path) -> None:
     module = importlib.reload(module)
 
     assert module.app.title == "agent-context-platform"
-

@@ -2,11 +2,11 @@
 
 ## 状态
 
-草案，待评审。
+首版代码已实现，待评审和参数调优。
 
 ## 个人开发边界
 
-本文是开发者 C 的个人方案文档，只描述检索与上下文组装方向的技术设计、改动影响、协作边界和冲突风险，不包含具体代码实现。
+本文是开发者 C 的个人方案文档，描述检索与上下文组装方向的技术设计、改动影响、协作边界和冲突风险。首版实现已按本文边界落到代码中，后续 review 重点应放在召回效果、参数调优和是否需要暴露 trace API。
 
 开发者 C 负责完整交付以下能力：
 
@@ -25,6 +25,19 @@
 - 不负责 indexer、provenance、repo scoped identity、incremental indexing 和 symbol catalog 的写入。
 - 不负责数据库 schema 的主导设计，除非后续和开发者 B 对齐后确实需要 retrieval 辅助表。
 - 不负责 code graph / GraphRAG / rerank 模型接入。
+
+首版实现位置：
+
+| 文件 | 实现内容 |
+|---|---|
+| `src/agent_context_platform/lexical.py` | 工程 tokenization、中文 bigram fallback、BM25-like lexical scoring |
+| `src/agent_context_platform/aliases.py` | 轻量领域词 alias 配置和 query expansion |
+| `src/agent_context_platform/retrieval_trace.py` | 多路召回 hit、RRF 融合候选和内部 trace 结构 |
+| `src/agent_context_platform/retrieval.py` | lexical / vector / symbol 多路召回、RRF 融合、score_parts 和 match_reason |
+| `src/agent_context_platform/context_composer.py` | token budget、missing context、risk 和 citation 汇总 |
+| `src/agent_context_platform/context_builder.py` | 四类上下文检索编排，并接入 ContextComposer |
+| `src/agent_context_platform/runtime.py` | 可选 `ACP_ALIAS_FILE` 运行时配置 |
+| `tests/test_lexical.py`、`tests/test_retrieval.py`、`tests/test_context_api.py`、`tests/test_runtime.py` | 首版行为回归测试 |
 
 ## 背景
 

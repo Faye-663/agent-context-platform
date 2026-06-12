@@ -64,7 +64,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 |---|---|
 | `item` | `IndexedItem` |
 | `score` | 统一排序分数 |
-| `score_parts` | 可选，关键词、向量等分数来源 |
+| `score_parts` | 可选，`keyword` / `lexical` / `vector` / `symbol` / `rrf` 等分数来源 |
 | `match_reason` | 命中原因，便于 Agent 判断可用性 |
 | `source` | `SourceCitation` |
 
@@ -186,7 +186,10 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
       "score": 0.82,
       "score_parts": {
         "keyword": 0.7,
-        "vector": 0.12
+        "lexical": 0.7,
+        "vector": 0.12,
+        "symbol": 0,
+        "rrf": 0.0325
       },
       "match_reason": "方法名和正文同时命中 payment/message/build",
       "source": {
@@ -226,7 +229,8 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
   },
   "constraints": {
     "language": "java",
-    "repo": "gitlab.example.com/payments/payment-service"
+    "repo": "gitlab.example.com/payments/payment-service",
+    "token_budget": 4000
   },
   "request_id": "req-002"
 }
@@ -238,7 +242,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 |---|---|
 | `task` | 必填，非空任务描述 |
 | `limits` | 可选，按上下文类型控制返回数量 |
-| `constraints` | 可选，当前主要用于 `language`、`repo` 等跨检索约束 |
+| `constraints` | 可选，当前主要用于 `language`、`repo`、`token_budget` 等跨检索约束 |
 | `request_id` | 可选，用于日志追踪 |
 
 响应：
@@ -265,6 +269,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 - 不允许返回没有来源的上下文。
 - 不允许把缺失上下文包装成确定结论。
 - 当某类结果为空时，必须在 `missing_context` 或 `risks` 中体现。
+- `constraints.token_budget` 为正整数；开启后会按结果顺序裁剪上下文，并在裁剪导致某类证据为空时继续通过 `missing_context` / `risks` 暴露。
 
 ## 错误处理
 

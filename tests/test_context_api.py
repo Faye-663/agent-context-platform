@@ -265,6 +265,45 @@ def test_build_task_context_reports_partially_missing_context() -> None:
     assert payload["missing_context"] == ["code"]
 
 
+def test_build_task_context_applies_token_budget_constraint() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/build-task-context",
+        json={
+            "task": "新增支付接口，复用支付报文生成能力",
+            "constraints": {"language": "java", "token_budget": 1},
+        },
+    )
+
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert [result["source"]["symbol"] for result in payload["related_code"]] == [
+        "PaymentMessageBuilder.build"
+    ]
+    assert payload["related_db_schema"] == []
+    assert payload["related_docs"] == []
+    assert payload["missing_context"] == ["db_schema", "doc"]
+    assert len(payload["citations"]) == 1
+
+
+def test_build_task_context_rejects_invalid_token_budget_constraint() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/build-task-context",
+        json={
+            "task": "新增支付接口，复用支付报文生成能力",
+            "constraints": {"token_budget": "small"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert "token_budget" in response.json()["error"]["message"]
+
+
 class QueryEmbeddingProvider:
     identity = EmbeddingIdentity(provider="fake", model="query-model", dimension=3)
     batch_size = 10
