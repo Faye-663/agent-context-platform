@@ -111,7 +111,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T4: Index Provenance / Freshness
 
-**状态：** 新增，待转正式需求。
+**状态：** 已转入正式需求并部分实施。
 
 **目标：** 让每条检索证据都能说明来自哪个 repo、branch / commit、文件版本、索引时间和索引批次，避免 Agent 使用过期或来源不明的上下文。
 
@@ -129,13 +129,14 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 - provenance 字段进入 `SourceCitation`，包括 `branch`、`commit_sha`、`file_hash`、`indexed_at`、`index_batch_id`。
 - `branch` 和 `commit_sha` 是 best-effort Git provenance；非 Git 目录、detached HEAD 或 Git 不可用时允许为空。
-- `file_hash`、`indexed_at`、`index_batch_id` 由 `acp-index` 写入，用于后续 freshness 判断、context citation 和调试展示。
+- `acp-index` 已写入 `branch`、`commit_sha`、`file_hash`、`indexed_at`、`index_batch_id`；非 Git 目录或 Git 信息不可用时记录 best-effort provenance warning，不阻断索引。
 - `P1-T4` 不负责 repo 过滤、repo-scoped primary key、旧数据重建、symbol recall、RRF 或 context sufficiency 判断。
 
-**待明确：**
+**待后续来实现：**
 
 - Agent response 和 debug trace 对 provenance 字段的展示层级。
-- 是否需要在后续任务中增加 freshness 风险码或更细粒度 stale 判断。
+- 基于当前工作区或指定版本判断 stale 的规则。
+- 是否需要引入正式 freshness risk code 或更细粒度 stale 判断。
 
 ### P1-T5: 多仓共库检索隔离
 
@@ -143,11 +144,12 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 **目标：** 避免多个 GitLab code repo 写入同一数据库后互相覆盖、跨仓误召回或污染检索结果。
 
-**当前实现风险：**
+**当前实现事实：**
 
-- `acp-index --repo` 会写入 `SourceCitation.repo`，但 keyword / vector 检索当前不按 repo 过滤。
-- 当前 `IndexedItem.id` 不包含 repo，例如 `code:{path}:{symbol}`、`db_schema:{path}:{table}`、`doc:{path}:{heading_path}`。
-- 多 repo 存在相同相对路径和 symbol/table/heading 时，`session.merge` 可能覆盖旧 item。
+- `indexed_items` 使用 `(repo, id)` 作为存储身份。
+- `item_embeddings` 使用 `(repo, item_id, provider, model, dimension)` 作为存储身份，并通过 `(repo, item_id)` 关联 `indexed_items`。
+- keyword、vector 和 Context API 检索路径已支持 repo filter。
+- Context API 支持 `filters.repo`、`constraints.repo`、`ACP_DEFAULT_REPO` 和 `ACP_REQUIRE_REPO_FILTER`。
 
 **依赖：** `P1-T4` 的 repo identity / provenance 设计。
 
@@ -177,7 +179,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T6: Incremental Indexing / Index Consistency
 
-**状态：** 已讨论，待转正式需求。
+**状态：** 已转入正式需求并实施。
 
 **目标：** 解决代码、文档、SQL 等工程资产变化后，索引如何保持一致；第一阶段先做手动增量索引 + 一致性清理。
 
@@ -188,20 +190,20 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 **已确认范围：**
 
 - 开发者显式运行命令触发。
-- 支持只重建指定文件或指定 path scope。
+- 增量索引入口是 `acp-index --path`，支持只重建指定文件或指定 path scope。
 - 文件删除、路径移动、symbol 重命名、heading/table 变化后，旧索引必须删除或失效。
 - 输出 JSON 摘要，说明 changed、deleted、unchanged、failed。
 - 支持 dry-run。
 - 与多仓、branch / worktree、repo 隔离边界兼容，不能误删其他 repo 的索引。
 
+**已确认实现：**
+
+- 变更检测基于 path scope 和 `file_hash`。
+- 删除检测通过 scope 内旧 path 与当前成功索引 path 对比表达。
+- JSON summary 输出 `files_changed`、`files_unchanged`、`files_deleted`、`items_deleted`、`symbols_deleted` 和 `failures`。
+- 写库事务边界是当前命令批次级 session / commit。
+
 **暂缓事项：** watch mode 暂缓到 Phase 2 或更后。
-
-**待明确：**
-
-- 增量索引入口是扩展 `acp-index`，还是新增单独命令。
-- 文件变更检测基于 path 参数、manifest、文件 hash，还是 git diff。
-- 删除检测如何表达。
-- 事务边界是单文件事务、批次事务，还是全量命令事务。
 
 ### P1-T7: Lexical Retrieval / Tokenizer / BM25
 
@@ -260,7 +262,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T9: Symbol Index
 
-**状态：** 已讨论，待转正式需求。
+**状态：** 索引 / 存储 / 清理 / read API 已实施；retrieval ranking 属于开发者 C 范围。
 
 **目标：** 建立轻量 symbol catalog，并提供 symbol recall，作为 keyword / vector 之外的补充召回通道，同时为后续 code graph 铺底。
 
@@ -270,6 +272,9 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 - `IndexedItem.source.symbol` 已保存类名或方法名。
 - `metadata.symbol_type` 已支持 `class`、`method`、`table`、`column` 等结构化类型。
 - `indexed_items.symbol_type` 已建索引，keyword / vector 检索都支持 `filters.symbol_type`。
+- 独立 `symbols` 表已存在，按 `(repo, symbol_id)` 隔离。
+- 开发者 B 侧已提供 `list_symbols`、`find_symbols_exact`、`find_symbols_prefix` 和 path 清理能力。
+- `acp-index` 已写入 Java / SQL symbol catalog，并和增量清理联动。
 
 **依赖：** `P1-T1`、`P1-T4`、`P1-T5`；和 `P1-T6` 在一致性清理上相互约束。
 
@@ -282,14 +287,17 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 - v1 使用独立 `symbols` 表，不复用 `indexed_items` metadata 作为 catalog 存储。
 - v1 覆盖 Java `class`、`interface`、`enum`、`record`、`annotation_type`、`method`、`constructor`、`field`，以及 SQL `table`、`column`；Markdown heading 不纳入 symbol catalog。
 - v1 只记录 definitions，不记录 method call、field access、type reference、extends / implements 等 graph edge。
-- 开发者 B 提供 exact / prefix lookup；fuzzy、RRF、trace 和 ranking 属于开发者 C。
-- 当 query 包含疑似类名、方法名、驼峰词、包路径或完全限定名时，优先召回 exact / prefix / fuzzy 命中的 symbol。
-- symbol recall 的结果进入统一 `SearchResult`，并在 `score_parts` 或 trace 中区分 `symbol` 分数。
+- 开发者 B 提供 catalog 写入、存储、清理和 exact / prefix lookup；fuzzy、RRF、trace 和 ranking 属于开发者 C。
+- `source_item_id` 用于把 catalog symbol 映射回同 repo 下可展示或可检索的 `IndexedItem`。
 
-**待明确：**
+**集成风险（B/C 共读）：**
 
-- fuzzy 规则范围。
-- symbol recall 与 RRF 的融合方式。
+- 当前 `SymbolCatalogEntry` 覆盖范围大于可检索 `IndexedItem` 覆盖范围。
+- `index_java_source()` 当前主要生成 Java class / method 的 `IndexedItem`。
+- `index_java_symbols()` 会生成 interface / enum / record / annotation type / constructor / field 等更多 symbol。
+- `retrieval._symbol_recall()` 会跳过 `source_item_id is None` 的 symbol。
+- 因此部分 catalog symbol 已写入，但不会进入当前 symbol recall。
+- 后续需要确认：扩展 `IndexedItem` 粒度，还是明确 `source_item_id` 为空的 symbol 只服务 code graph，不参与 recall。
 
 ### P1-T10: Retrieval / Multi-Recall / RRF / Trace
 
