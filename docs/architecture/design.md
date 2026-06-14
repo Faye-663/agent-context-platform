@@ -90,7 +90,7 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 
 ## 检索与存储
 
-`HybridSearchService` 组合 lexical、vector 和 symbol 多路召回，并使用 RRF 融合候选。lexical 召回使用工程 tokenization 和 BM25-like 字段加权，覆盖中文、camelCase / PascalCase、snake_case、路径、表名、字段名和 symbol。vector 召回在 provider/model/dimension 明确时由 repository 层使用 PostgreSQL / pgvector 执行 query embedding 相似度排序；SQLite 路径保留为单元测试和轻量验证替代实现。symbol 召回消费 `symbols` catalog，并按 `(repo, item_id)` 与其他通道去重。
+`HybridSearchService` 组合 lexical、vector 和 symbol 多路召回，并使用 RRF 融合候选。lexical 召回使用工程 tokenization 和 BM25-like 字段加权，覆盖中文、camelCase / PascalCase、snake_case、路径、表名、字段名和 symbol。中文分词优先使用 `jieba` search mode，并把领域词 / 工程词加入词典；无分词器时保留最长匹配和 2-4 gram 规则 fallback。vector 召回在 provider/model/dimension 明确时由 repository 层使用 PostgreSQL / pgvector 执行 query embedding 相似度排序；SQLite 路径保留为单元测试和轻量验证替代实现。symbol 召回消费 `symbols` catalog，并按 `(repo, item_id)` 与其他通道去重。
 
 `IndexedItemRepository` 保存：
 
