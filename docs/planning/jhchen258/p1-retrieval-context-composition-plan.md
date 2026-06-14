@@ -30,7 +30,7 @@
 
 | 文件 | 实现内容 |
 |---|---|
-| `src/agent_context_platform/lexical.py` | 工程 tokenization、中文 bigram fallback、BM25-like lexical scoring |
+| `src/agent_context_platform/lexical.py` | 工程 tokenization、中文词级分词、BM25-like lexical scoring |
 | `src/agent_context_platform/aliases.py` | 轻量领域词 alias 配置和 query expansion |
 | `src/agent_context_platform/retrieval_trace.py` | 多路召回 hit、RRF 融合候选和内部 trace 结构 |
 | `src/agent_context_platform/retrieval.py` | lexical / vector / symbol 多路召回、RRF 融合、score_parts 和 match_reason |
@@ -129,13 +129,13 @@ src/agent_context_platform/lexical.py
 - BM25 或 BM25-like scoring。
 - 返回 lexical score、命中 token、命中字段等解释信息。
 
-中文分词建议：
+中文分词策略：
 
-- 轻量规则分词。
-- 领域词表最长匹配。
-- 中文 bigram fallback。
+- 优先使用轻量第三方分词器的 search mode。
+- 领域词表和工程词典优先进入分词词典。
+- 无分词器时保留最长匹配 + 2-4 gram 规则 fallback，不能退回纯 bigram。
 
-本次实现不建议直接引入重型中文分词依赖。原因是当前还需要通过 evaluation harness 证明检索改进有效，过早引入复杂依赖会提高部署和调试成本。
+本次实现允许引入轻量纯 Python 分词依赖，但不引入服务型或重型 NLP 组件。后续是否替换分词器，应通过 evaluation harness 证明收益。
 
 字段权重建议：
 

@@ -33,7 +33,7 @@
 实现内容：
 
 - 支持英文关键词、中文片段、camelCase、PascalCase、snake_case、路径、表名、字段名和 symbol token。
-- 支持领域词最长匹配和中文 bigram fallback。
+- 支持领域词 / 工程词优先、`jieba` search mode 中文分词，以及无分词器时的规则 fallback。
 - 对 `title`、`summary`、`content`、`metadata`、`source.symbol`、`source.table`、`source.column`、`source.heading_path`、`source.path` 做字段加权。
 - 使用 BM25-like scoring 输出 lexical 分数、命中 token 和命中字段。
 
