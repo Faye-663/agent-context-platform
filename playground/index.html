@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACP MCP Playground</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ACP MCP Playground</h1>
+  <div id="connection-bar">
+    <input id="server-url" type="text" value="http://127.0.0.1:8001/mcp" placeholder="MCP Server URL">
+    <button id="btn-connect">连接</button>
+    <span id="status-indicator">未连接</span>
+  </div>
+</header>
+
+<main>
+  <aside id="tool-list">
+    <h3>Tools</h3>
+    <ul id="tools"></ul>
+  </aside>
+
+  <section id="main-area">
+    <div id="tool-detail">
+      <div id="tool-info">
+        <h3 id="selected-tool-name">选择左侧 Tool</h3>
+        <p id="selected-tool-desc"></p>
+      </div>
+      <div id="param-form"></div>
+      <div id="debug-options">
+        <label><input type="checkbox" id="include-trace"> Include Trace</label>
+      </div>
+      <button id="btn-invoke" disabled>调用</button>
+    </div>
+
+    <div id="response-area">
+      <div class="response-tabs">
+        <button class="tab-btn active" data-tab="raw">原始 JSON</button>
+        <button class="tab-btn" data-tab="readable">可读化</button>
+      </div>
+      <div id="raw-response" class="tab-content active"></div>
+      <div id="readable-response" class="tab-content"></div>
+      <div id="trace-panel" class="collapsed">
+        <div class="trace-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          &#9654; Trace Details
+        </div>
+        <div class="trace-content" id="trace-content"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
