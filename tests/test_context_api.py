@@ -397,7 +397,10 @@ def test_explicit_query_embedding_skips_provider_call() -> None:
 
     response = client.post(
         "/search-code",
-        json={"query": "unmatched text", "query_embedding": [0.0, 1.0, 0.0]},
+        json={
+            "query": "unmatched text",
+            "debug_options": {"query_embedding": [0.0, 1.0, 0.0]},
+        },
     )
 
     assert response.status_code == 200

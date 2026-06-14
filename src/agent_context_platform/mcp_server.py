@@ -194,7 +194,7 @@ class ContextApiToolClient:
         query: str,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        query_embedding: list[float] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         return self._post_search(
@@ -203,7 +203,7 @@ class ContextApiToolClient:
             query=query,
             limit=limit,
             filters=filters,
-            query_embedding=query_embedding,
+            debug_options=debug_options,
             request_id=request_id,
         )
 
@@ -213,7 +213,7 @@ class ContextApiToolClient:
         query: str,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        query_embedding: list[float] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         return self._post_search(
@@ -222,7 +222,7 @@ class ContextApiToolClient:
             query=query,
             limit=limit,
             filters=filters,
-            query_embedding=query_embedding,
+            debug_options=debug_options,
             request_id=request_id,
         )
 
@@ -232,7 +232,7 @@ class ContextApiToolClient:
         query: str,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        query_embedding: list[float] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         return self._post_search(
@@ -241,7 +241,7 @@ class ContextApiToolClient:
             query=query,
             limit=limit,
             filters=filters,
-            query_embedding=query_embedding,
+            debug_options=debug_options,
             request_id=request_id,
         )
 
@@ -251,6 +251,7 @@ class ContextApiToolClient:
         task: str,
         limits: dict[str, int] | None = None,
         constraints: dict[str, Any] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -258,6 +259,8 @@ class ContextApiToolClient:
             "limits": limits or {},
             "constraints": constraints or {},
         }
+        if debug_options is not None:
+            payload["debug_options"] = debug_options
         if request_id is not None:
             payload["request_id"] = request_id
         return self._post_tool("build_task_context", "/build-task-context", payload)
@@ -270,7 +273,7 @@ class ContextApiToolClient:
         query: str,
         limit: int,
         filters: dict[str, Any] | None,
-        query_embedding: list[float] | None,
+        debug_options: dict[str, Any] | None,
         request_id: str | None,
     ) -> dict[str, Any]:
         # search_* 工具共享同一 payload 形状，便于 Agent 在不同资产类型之间切换。
@@ -279,8 +282,8 @@ class ContextApiToolClient:
             "limit": limit,
             "filters": filters or {},
         }
-        if query_embedding is not None:
-            payload["query_embedding"] = query_embedding
+        if debug_options is not None:
+            payload["debug_options"] = debug_options
         if request_id is not None:
             payload["request_id"] = request_id
         return self._post_tool(tool, path, payload)
@@ -339,7 +342,7 @@ def create_mcp_server(
         query: str,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        query_embedding: list[float] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """通过 Context API 检索已索引的 Java code。
@@ -361,7 +364,7 @@ def create_mcp_server(
             query=query,
             limit=limit,
             filters=filters,
-            query_embedding=query_embedding,
+            debug_options=debug_options,
             request_id=request_id,
         )
 
@@ -370,7 +373,7 @@ def create_mcp_server(
         query: str,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        query_embedding: list[float] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """通过 Context API 检索已索引的 SQL schema。
@@ -388,7 +391,7 @@ def create_mcp_server(
             query=query,
             limit=limit,
             filters=filters,
-            query_embedding=query_embedding,
+            debug_options=debug_options,
             request_id=request_id,
         )
 
@@ -397,7 +400,7 @@ def create_mcp_server(
         query: str,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        query_embedding: list[float] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """通过 Context API 检索已索引的 Markdown docs。
@@ -415,7 +418,7 @@ def create_mcp_server(
             query=query,
             limit=limit,
             filters=filters,
-            query_embedding=query_embedding,
+            debug_options=debug_options,
             request_id=request_id,
         )
 
@@ -424,6 +427,7 @@ def create_mcp_server(
         task: str,
         limits: dict[str, int] | None = None,
         constraints: dict[str, Any] | None = None,
+        debug_options: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """通过 Context API 构建 task context。
@@ -444,6 +448,7 @@ def create_mcp_server(
             task=task,
             limits=limits,
             constraints=constraints,
+            debug_options=debug_options,
             request_id=request_id,
         )
 

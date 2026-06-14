@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from agent_context_platform.context_builder import TaskContextBuilder
@@ -24,6 +24,17 @@ from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchServ
 
 logger = logging.getLogger(__name__)
 SearchServiceScope = Callable[[], AbstractContextManager[HybridSearchService]]
+
+
+class DebugOptions(BaseModel):
+    """调试参数分组。不传时使用默认行为。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # query_embedding 用于绕过 provider 直接传查询向量，常见于测试或上游已生成向量的场景。
+    query_embedding: list[float] | None = None
+    # include_trace 为 True 时在 response 中返回检索 trace（调试用途，结构可能随版本变化）。
+    include_trace: bool = False
 
 
 class SearchFilters(BaseModel):
@@ -56,8 +67,8 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
     # filters 是可选结构化过滤条件，不传时使用空过滤。
     filters: SearchFilters = Field(default_factory=SearchFilters)
-    # query_embedding 用于绕过 provider 直接传查询向量，常见于测试或上游已生成向量的场景。
-    query_embedding: list[float] | None = None
+    # debug_options 调试参数分组，包含 query_embedding 和 include_trace。
+    debug_options: DebugOptions | None = None
     # request_id 贯穿日志，便于排查一次 Agent 调用链路。
     request_id: str | None = None
 
@@ -74,6 +85,8 @@ class BuildTaskContextRequest(BaseModel):
     limits: dict[str, int] = Field(default_factory=dict)
     # constraints 当前主要用于 language 等跨检索类型约束。
     constraints: dict[str, Any] = Field(default_factory=dict)
+    # debug_options 调试参数分组，包含 query_embedding 和 include_trace。
+    debug_options: DebugOptions | None = None
     # request_id 用于日志追踪；不传时 API 会自动生成。
     request_id: str | None = None
 
@@ -176,7 +189,16 @@ def create_app(
             len(context.citations),
             elapsed_ms,
         )
-        return context.model_dump(mode="json")
+        response: dict[str, Any] = context.model_dump(mode="json")
+        if _should_include_trace(request.debug_options):
+            response["_trace"] = _build_trace_from_results(
+                context.related_code
+                + context.related_db_schema
+                + context.related_docs
+                + context.similar_implementations,
+                query=request.task,
+            )
+        return response
 
     return app
 
@@ -189,7 +211,7 @@ def _search_endpoint(
     search_service: HybridSearchService,
     default_repo: str | None,
     require_repo_filter: bool,
-) -> dict[str, list[dict[str, Any]]] | JSONResponse:
+) -> dict[str, Any] | JSONResponse:
     started = time.perf_counter()
     request_id = request.request_id or str(uuid4())
     try:
@@ -199,6 +221,12 @@ def _search_endpoint(
             default_repo=default_repo,
             require_repo_filter=require_repo_filter,
         )
+        # 从 debug_options 中提取 query_embedding（如果有）
+        query_embedding = (
+            request.debug_options.query_embedding
+            if request.debug_options
+            else None
+        )
         # 三个 search endpoint 共用同一条路径，只通过 asset_type 区分代码、表结构和文档。
         results = search_service.search(
             HybridSearchQuery(
@@ -206,7 +234,7 @@ def _search_endpoint(
                 asset_type=asset_type,
                 limit=request.limit,
                 filters=filters,
-                query_embedding=request.query_embedding,
+                query_embedding=query_embedding,
             )
         )
     except (EmbeddingProviderError, EmbeddingDimensionError) as exc:
@@ -232,7 +260,10 @@ def _search_endpoint(
         result_count=len(results),
         elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
     )
-    return {"results": _dump_results(results)}
+    response: dict[str, Any] = {"results": _dump_results(results)}
+    if _should_include_trace(request.debug_options):
+        response["_trace"] = _build_trace_from_results(results, query=request.query)
+    return response
 
 
 def _log_search(
@@ -287,3 +318,64 @@ def _error_response(
     if details is not None:
         body["error"]["details"] = details
     return JSONResponse(status_code=400, content=body)
+
+
+def _should_include_trace(debug_options: DebugOptions | None) -> bool:
+    return debug_options is not None and debug_options.include_trace
+
+
+def _build_trace_from_results(
+    results: list[SearchResult],
+    query: str = "",
+) -> dict[str, Any]:
+    """从 SearchResult 列表中提取 trace 信息。
+
+    当前从 score_parts 和各 channel 分数中汇总，提供各通道的候选数和
+    最高分概览。详细 trace（tokenization、alias、per-item channel ranks）
+    需要 retrieval.py 暴露内部 RetrievalTrace 后才能补充。
+    """
+    channel_info: dict[str, dict[str, Any]] = {}
+    seen_keys: set[tuple[str | None, str]] = set()
+
+    for result in results:
+        key = (result.source.repo, result.item.id)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        score_parts = result.score_parts or {}
+        for channel, score in score_parts.items():
+            if channel not in channel_info:
+                channel_info[channel] = {
+                    "candidates": 0,
+                    "top_score": 0.0,
+                }
+            channel_info[channel]["candidates"] += 1
+            channel_info[channel]["top_score"] = max(
+                channel_info[channel]["top_score"], score
+            )
+
+    fused = []
+    for result in results:
+        score_parts = result.score_parts or {}
+        # channel_scores: 各通道对当前 item 的原始评分
+        channel_scores = {
+            ch: score for ch, score in score_parts.items() if score
+        }
+        # channel_ranks 需要 per-channel 完整排序，当前从 SearchResult
+        # 无法获取；TODO: 等 retrieval.py 暴露 RetrievalTrace 后补充
+        channel_ranks: dict[str, int] = {}
+        fused.append({
+            "item_id": result.item.id,
+            "rrf_score": result.score,
+            "channel_ranks": channel_ranks,
+            "channel_scores": channel_scores,
+        })
+
+    return {
+        "query": query,
+        "query_tokens": [],
+        "alias_expansions": [],
+        "channels": channel_info,
+        "fused": fused,
+    }
