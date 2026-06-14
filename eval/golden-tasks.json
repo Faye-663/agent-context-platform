@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "groups": {
+    "code_search": {
+      "description": "代码搜索场景——测试代码符号、中英混合、路径匹配",
+      "samples": [
+        {
+          "id": "code-001",
+          "task": "查找支付报文构建方法",
+          "expected_hits": [
+            {
+              "source_type": "code",
+              "symbol": "PaymentMessageBuilder.build"
+            }
+          ],
+          "irrelevant_result_ids": ["code:AccountQueryService.query"],
+          "irrelevant_rules": ["账户查询不属于支付报文生成链路"],
+          "notes": "测试代码 symbol 精确命中：方法名和 task 关键词匹配"
+        },
+        {
+          "id": "code-002",
+          "task": "查询用户账户余额的实现",
+          "expected_hits": [
+            {
+              "source_type": "code",
+              "symbol": "AccountService.getBalance"
+            }
+          ],
+          "notes": "测试中英混合检索：'余额'匹配到 getBalance"
+        },
+        {
+          "id": "code-003",
+          "task": "订单状态变更的入口在哪里",
+          "expected_hits": [
+            {
+              "source_type": "code",
+              "symbol": "OrderStateMachine"
+            }
+          ],
+          "notes": "测试类名精确匹配：OrderStateMachine"
+        },
+        {
+          "id": "code-004",
+          "task": "退款重试相关的定时任务",
+          "expected_hits": [
+            {
+              "source_type": "code",
+              "path": "src/main/java/com/example/payment/scheduler"
+            }
+          ],
+          "irrelevant_result_ids": ["code:PaymentService.process"],
+          "irrelevant_rules": ["支付处理不属于退款重试定时任务"],
+          "notes": "测试路径前缀匹配和中文业务词：退款→refund scheduler"
+        }
+      ]
+    },
+    "db_schema_search": {
+      "description": "表结构搜索场景——测试表名、字段名、业务实体匹配",
+      "samples": [
+        {
+          "id": "schema-001",
+          "task": "查退款订单表字段定义",
+          "expected_hits": [
+            {
+              "source_type": "db_schema",
+              "table": "refund_order"
+            }
+          ],
+          "notes": "测试表名精确命中：refund_order"
+        },
+        {
+          "id": "schema-002",
+          "task": "支付流水表的索引和约束",
+          "expected_hits": [
+            {
+              "source_type": "db_schema",
+              "table": "payment_transaction_log"
+            }
+          ],
+          "notes": "测试中英混合命中支付流水→payment_transaction_log"
+        },
+        {
+          "id": "schema-003",
+          "task": "订单状态有哪些枚举值",
+          "expected_hits": [
+            {
+              "source_type": "db_schema",
+              "table": "order_status"
+            },
+            {
+              "source_type": "db_schema",
+              "column": "status"
+            }
+          ],
+          "notes": "测试多 expected_hit 场景：表名和字段名可能分布在不同结果中"
+        }
+      ]
+    },
+    "doc_search": {
+      "description": "文档搜索场景——测试章节标题、文档内容、设计决策匹配",
+      "samples": [
+        {
+          "id": "doc-001",
+          "task": "支付报文的格式设计文档",
+          "expected_hits": [
+            {
+              "source_type": "doc",
+              "heading_path": "Payment Integration > Message Format"
+            }
+          ],
+          "notes": "测试 heading_path 精确匹配文档章节"
+        },
+        {
+          "id": "doc-002",
+          "task": "退款流程的 ADR 决策记录",
+          "expected_hits": [
+            {
+              "source_type": "doc",
+              "heading_path": "Architecture Decision Records > Refund Flow"
+            }
+          ],
+          "notes": "测试 ADR 文档检索：中文退款匹配 Refund Flow"
+        },
+        {
+          "id": "doc-003",
+          "task": "数据库分表方案说明",
+          "expected_hits": [
+            {
+              "source_type": "doc",
+              "heading_path": "Database Design > Sharding Strategy"
+            }
+          ],
+          "notes": "测试文档内容检索：数据库分表→Database Sharding"
+        }
+      ]
+    },
+    "task_context": {
+      "description": "聚合检索场景——测试 build-task-context 端到端的多资产召回",
+      "samples": [
+        {
+          "id": "context-001",
+          "task": "新增支付宝支付接口，复用已有支付报文生成能力",
+          "expected_hits": [
+            {
+              "source_type": "code",
+              "symbol": "PaymentMessageBuilder.build"
+            },
+            {
+              "source_type": "code",
+              "symbol": "AbstractPaymentService"
+            },
+            {
+              "source_type": "doc",
+              "heading_path": "Payment Integration > Message Format"
+            }
+          ],
+          "notes": "聚合场景：期望同时召回代码、文档等多类资产"
+        },
+        {
+          "id": "context-002",
+          "task": "优化退款查询性能，需要了解表结构和现有查询实现",
+          "expected_hits": [
+            {
+              "source_type": "db_schema",
+              "table": "refund_order"
+            },
+            {
+              "source_type": "code",
+              "symbol": "RefundQueryService"
+            },
+            {
+              "source_type": "doc",
+              "heading_path": "Architecture Decision Records > Refund Flow"
+            }
+          ],
+          "notes": "聚合场景：跨代码+表结构+文档的综合检索"
+        }
+      ]
+    }
+  }
+}
