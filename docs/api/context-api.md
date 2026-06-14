@@ -134,7 +134,10 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
     "repo": "gitlab.example.com/payments/payment-service",
     "table": null
   },
-  "query_embedding": null,
+  "debug_options": {
+    "query_embedding": null,
+    "include_trace": false
+  },
   "request_id": "req-001"
 }
 ```
@@ -150,7 +153,9 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 | `filters.path_prefix` | 可选，限制仓库子目录 |
 | `filters.table` | 可选，用于 DB schema 搜索 |
 | `filters.repo` | 可选，限制 GitLab code repo；未传时可由 `ACP_DEFAULT_REPO` 注入 |
-| `query_embedding` | 可选，用于显式传入 query embedding |
+| `debug_options` | 可选调试参数分组，包含 `query_embedding` 和 `include_trace` |
+| `debug_options.query_embedding` | 可选，用于显式传入 query embedding（高级调试用） |
+| `debug_options.include_trace` | 可选，默认 `false`，设为 `true` 时 response 增加 `_trace` 字段（调试用途，结构可能变化） |
 | `request_id` | 可选，用于贯穿日志和调试链路 |
 
 响应：
@@ -232,6 +237,9 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
     "repo": "gitlab.example.com/payments/payment-service",
     "token_budget": 4000
   },
+  "debug_options": {
+    "include_trace": false
+  },
   "request_id": "req-002"
 }
 ```
@@ -243,6 +251,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 | `task` | 必填，非空任务描述 |
 | `limits` | 可选，按上下文类型控制返回数量 |
 | `constraints` | 可选，当前主要用于 `language`、`repo`、`token_budget` 等跨检索约束 |
+| `debug_options` | 可选，和 search endpoint 共用同一 `DebugOptions` 模型 |
 | `request_id` | 可选，用于日志追踪 |
 
 响应：
@@ -270,6 +279,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 - 不允许把缺失上下文包装成确定结论。
 - 当某类结果为空时，必须在 `missing_context` 或 `risks` 中体现。
 - `constraints.token_budget` 为正整数；开启后会按结果顺序裁剪上下文，并在裁剪导致某类证据为空时继续通过 `missing_context` / `risks` 暴露。
+- 当 `debug_options.include_trace=true` 时，响应中会增加 `_trace` 字段，包含各通道候选数和融合后结果摘要。`_trace` 为调试用途，结构可能随版本变化，暂不作为长期公开承诺。
 
 ## 错误处理
 
