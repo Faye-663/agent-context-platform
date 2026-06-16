@@ -1,14 +1,16 @@
 # P1 开发者 A 实施进展报告
 
+> 本文保留开发者 A 的实现过程记录。三人协作后的当前整体状态以 [Phase 1 当前状态汇总](../phase1-current-status.md) 为准。
+
 ## 文档信息
 
 | 项目 | 内容 |
 |------|------|
-| 对应方案 | `docs/planning/p1-developer-a-technical-design.md` |
-| 对应计划 | `.omo/plans/p1-developer-a-implementation-plan.md` |
+| 对应方案 | `docs/planning/developer-a/p1-developer-a-technical-design.md` |
+| 对应计划 | `docs/planning/developer-a/p1-developer-a-implementation-plan.md` |
 | 状态 | **第 1-4 轮编码全部完成，测试验证通过** |
 | 日期 | 2026-06-13 |
-| 测试结果 | **129 passed, 2 skipped, 0 failed** |
+| 测试结果 | **最新 master：130 passed, 2 skipped, 0 failed** |
 
 ---
 
@@ -195,20 +197,18 @@ acp-eval = "agent_context_platform.evaluation_cli:main"
 
 ---
 
-## 已知问题
+## 当前剩余事项
 
-| # | 问题 | 严重程度 | 说明 |
+| # | 事项 | 严重程度 | 说明 |
 |---|------|---------|------|
-| 1 | 测试未运行 | 高 | 当前环境无可用 Python 运行时（Windows Store 存根），无法执行 `uv run pytest`。需在开发环境运行验证 |
-| 2 | `evaluation_cli.py` 中 `time` 未使用 | 低 | 第 6 行 `import time` 未使用，不影响功能，后续可移除 |
-| 3 | `_trace` 信息为简化版 | 中 | 当前 `_build_trace_from_results()` 仅汇总 `score_parts`，不包含 tokenization、alias、per-item RRF 细节。需等待开发者 C 暴露内部的 `RetrievalTrace` 后补充 |
-| 4 | `test_mcp_server.py` 中部分测试需更新 | 中 | 步骤 8 调整了 `mcp_server.py` 的工具签名（`query_embedding` → `debug_options`），但 `test_mcp_server.py` 中的现有测试尚未同步适配（旧签名调用的测试会因参数变化而失败） |
+| 1 | Live regression 需要真实 Context API | 中 | `tests/test_eval_regression.py` 在未启动 `http://127.0.0.1:8000` 时会跳过；需要真实索引库做端到端验证 |
+| 2 | `_trace` 信息为简化版 | 中 | 当前 `_build_trace_from_results()` 仅汇总 `score_parts`，不包含 tokenization、alias、per-item RRF 细节；需等待开发者 C 暴露内部 `RetrievalTrace` 后补充 |
+| 3 | Playground 需要真实 MCP server 验证 | 中 | 静态前端已合入，仍需配合 `ACP_MCP_TRANSPORT=streamable-http` 做端到端演示 |
 
 ---
 
 ## 下一步
 
-1. **在本地开发环境运行测试**：`uv run pytest` 验证所有新增和已有测试通过
-2. **修复 #4**：更新 `test_mcp_server.py` 中引用了 `query_embedding` 参数的测试用例
-3. **修复 #2**：移除 `evaluation_cli.py` 中未使用的 `import time`
-4. **与开发者 C 对齐 #3**：确认 `RetrievalTrace` 的暴露接口，补充 `_trace` 详细信息
+1. **启动真实 Context API**：运行 `acp-eval --tasks eval/golden-tasks.json --api http://127.0.0.1:8000`
+2. **与开发者 C 对齐 trace**：确认 `RetrievalTrace` 暴露接口，补充 `_trace` 详细信息
+3. **验证 Playground**：通过 remote MCP HTTP 调用真实 Context API，检查 request / response / trace 展示

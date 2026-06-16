@@ -8,7 +8,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 
 ## 当前进展
 
-阶段 0：MVP 开发与验收已完成。阶段 1：生产化建设计划待定。
+阶段 0：MVP 开发与验收已完成。Phase 1 基础能力已基本合入 `master`，当前进入真实数据验证、trace 打通和效果调优阶段。后续生产化建设计划仍待正式确认。
 
 ## 目标用户
 
@@ -26,9 +26,14 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - 索引来源 provenance：repo、best-effort branch / commit、file hash、index time 和 index batch。
 - Multi code repo 共库隔离：indexed item 和 embedding 按 repo 隔离，检索支持 repo filter。
 - Symbol catalog：Java / SQL symbol definitions 按 repo 隔离保存，为 symbol recall 和 code graph 铺底。
-- 关键词、向量和结构化过滤组合的 Hybrid Search。
+- lexical、vector、symbol 多路召回，RRF 融合和统一 `SearchResult`。
+- 中文 lexical retrieval：`jieba` search mode、工程词典、alias expansion 和无分词器 fallback。
+- Context Composer：token budget、`missing_context`、`risks` 和 citation 汇总。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
+- DebugOptions：search / build-task-context 支持 `debug_options.include_trace`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
+- Evaluation harness：`eval/golden-tasks.json`、`acp-eval` CLI 和回归测试入口。
+- MCP Web Playground：开发调试入口。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
 - Embedding provider：DashScope native、OpenAI-compatible、Jina task mode。
@@ -45,7 +50,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - `repo` 当前表示 GitLab code repo identity；同一个 `IndexedItem.id` 只在单个 repo 内唯一。
 - Context API 应支持 `filters.repo` 和 `constraints.repo`；严格模式下缺少 repo 必须返回明确参数错误。
 - `request_id` 应贯穿 HTTP、MCP 调试日志和错误定位。
-- `query_embedding` 仅作为显式调用能力，用于测试或上游已生成 query embedding 的场景。
+- `query_embedding` 仅作为 `debug_options` 中的显式调用能力，用于测试或上游已生成 query embedding 的场景。
 
 ### 2. 可控索引
 

@@ -316,7 +316,7 @@ API 当前对上述错误返回 HTTP `400`。调用方应优先读取 `error.cod
 | `search_doc` | `POST /search-doc` |
 | `build_task_context` | `POST /build-task-context` |
 
-MCP wrapper 会透传 search 请求中的 `query`、`limit`、`filters`、`query_embedding`、`request_id`，以及 build 请求中的 `task`、`limits`、`constraints`、`request_id`。
+MCP wrapper 会透传 search 请求中的 `query`、`limit`、`filters`、`debug_options`、`request_id`，以及 build 请求中的 `task`、`limits`、`constraints`、`debug_options`、`request_id`。
 
 MCP wrapper 只调用 Context API，不直接访问 repository、SQLAlchemy session 或数据库。
 

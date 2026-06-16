@@ -22,7 +22,7 @@ MVP 文档已归档到 [MVP 阶段归档](../archive/mvp/README.md)。这些资�
 
 ## 验收结论
 
-MVP 验收结论采用当前正式文档口径：阶段 0：MVP 开发与验收已完成；项目进入阶段 1：生产化建设准备，具体计划待定。
+MVP 验收结论采用当时正式文档口径：阶段 0：MVP 开发与验收已完成；项目进入阶段 1：生产化建设准备。该文件保留 MVP 归档视角，不再作为 Phase 1 当前状态入口。
 
 归档验证记录中保留了各阶段的测试、脚本和人工验证证据，包括全量单元测试、固定评测集回归、PostgreSQL / pgvector 验证、DashScope/Jina embedding 验证、初始化索引 CLI 验证和 remote MCP HTTP 验证。正式阶段后续测评体系需要重新设计，不直接把 MVP 评测计划扩展为正式测评文档。
 
@@ -30,6 +30,6 @@ MVP 验收结论采用当前正式文档口径：阶段 0：MVP 开发与验收�
 
 - 正式需求入口改为 [正式需求](../product/requirements.md)。
 - 当前架构入口改为 [当前架构设计](../architecture/design.md)。
-- 阶段 1：生产化建设计划待定；本次归档不定义后续路线图。
+- Phase 1 当前状态入口改为 [Phase 1 当前状态与协作分工](phase1-current-status.md)。
 - 正式测评体系待优化，当前只记录 [正式测评待办](../evaluation/evaluation-todo.md)。
 - ADR 保持不变；新增长期架构决策时再创建新的 ADR。
