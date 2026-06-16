@@ -39,6 +39,8 @@ IndexedItemRepository + Symbol Catalog + optional EmbeddingProvider
 | Runtime 装配 | `runtime.py` | 从 `ACP_*` 环境变量装配 engine、session、repository、embedding provider 和 FastAPI app |
 | MCP server | `mcp_server.py` / `acp-mcp-server` | 暴露 Agent Tool，调用 Context API |
 | Index CLI | `index_cli.py` / `acp-index` | 扫描工程目录、解析资产、写入索引和可选 embedding |
+| Evaluation CLI | `evaluation_cli.py` / `acp-eval` | 读取 golden tasks，调用 Context API 并生成评测报告 |
+| MCP Playground | `playground/` | 面向开发调试的 MCP tool 调用和结果展示入口 |
 
 ## Context API
 
@@ -54,7 +56,7 @@ IndexedItemRepository + Symbol Catalog + optional EmbeddingProvider
 - `query`：必填，非空。
 - `limit`：默认 `10`，范围 `1..50`。
 - `filters`：支持 `repo`、`language`、`symbol_type`、`path_prefix`、`table`。
-- `query_embedding`：可选；用于调用方显式提供 query embedding。
+- `debug_options`：可选；包含 `query_embedding` 和 `include_trace`。
 - `request_id`：可选；不传时 API 自动生成。
 
 `build-task-context` 使用 `BuildTaskContextRequest`：
@@ -62,6 +64,7 @@ IndexedItemRepository + Symbol Catalog + optional EmbeddingProvider
 - `task`：必填，非空。
 - `limits`：按资产类型控制返回数量。
 - `constraints`：当前主要用于 `repo`、`language` 等跨检索约束。
+- `debug_options`：可选；包含 `include_trace`。
 - `request_id`：可选。
 
 `constraints.token_budget` 可选控制 `build-task-context` 返回上下文规模；超出预算时优先保留更靠前的检索证据，并通过 `missing_context` / `risks` 暴露被裁剪后的上下文缺口。

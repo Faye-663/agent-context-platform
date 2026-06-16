@@ -16,17 +16,19 @@
 
 **阶段目标：** 让 ACP 的检索变得可评测、可诊断、可解释，并能稳定给 Agent 组装恰当上下文。
 
+**当前状态：** 核心代码已基本合入 `master`。当前完成度、风险和下一步以 [Phase 1 当前状态汇总](phase1-current-status.md) 为准；本文继续保留任务背景、边界和 Phase 2 待办。
+
 **阶段验收判断：**
 
 - 有固定评测集和 baseline，可判断检索策略是否真的提升。
 - MCP tool contract 稳定，Agent 和 Playground 都能可靠调用。
 - 索引结果可追溯到 repo / commit / file hash / index time，不返回明显过期或跨仓污染的证据。
-- 中文自然语言任务 + 代码符号混合检索明显优于当前 LIKE + bigram 基线。
+- 中文自然语言任务 + 代码符号混合检索明显优于早期 LIKE + 简单 token 基线。
 - 能输出带 token budget、证据分组、缺失上下文和置信提示的上下文包。
 
 ### P1-T1: Evaluation Harness / Golden Task Set
 
-**状态：** 新增，建议最先进入 Phase 1。
+**状态：** 已实施基础版。
 
 **目标：** 建立固定任务集、期望 evidence、指标和报告格式，让后续 BM25、Symbol、RRF、Context Composer 等能力可以被客观比较。
 
@@ -42,7 +44,7 @@
 
 ### P1-T2: MCP Tool Contract 优化
 
-**状态：** 已转入正式需求；索引 / 存储部分由开发者 B 实施中，retrieval 接入仍归开发者 C。
+**状态：** 已实施基础版。
 
 **目标：** 保留现有 4 个 core tools，优化 description、request format、response format、错误格式和调试语义。
 
@@ -68,13 +70,13 @@
 **待明确：**
 
 - `filters` 是继续保留为结构化对象，还是将常用过滤条件提升为显式参数。
-- `query_embedding` 是否应从普通 tool contract 中弱化为高级调试参数。
+- `query_embedding` 已弱化到 `debug_options.query_embedding`，后续只需确认版本化 contract。
 - retrieval trace 应进入正式 response，还是只通过 debug / Playground 暴露。
 - 是否需要为 MCP tools 定义版本化 contract。
 
 ### P1-T3: MCP Web Playground
 
-**状态：** 已讨论，待转正式需求。
+**状态：** 已实施基础版。
 
 **目标：** 提供轻量 direct MCP client 和 trace viewer，让开发人员不经过 Agent 就能直接调用 MCP tool、观察 request / response、检索命中和调试信息。
 
@@ -207,17 +209,16 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T7: Lexical Retrieval / Tokenizer / BM25
 
-**状态：** 已讨论，待转正式需求。
+**状态：** 已实施基础版。
 
 **目标：** 升级 keyword / lexical recall 通道，主要服务中文自然语言任务 + 代码符号混合检索。
 
 **当前实现能力判断：**
 
-- 英文 / 代码类 query 当前通过正则抽取 `[a-z0-9_]+` token。
-- 中文 query 当前对连续中文片段生成 bigram。
-- keyword recall 当前在数据库侧用 `LIKE` 匹配多个字段。
-- keyword score 当前在应用侧按 token 命中比例计算。
-- 当前没有文档频率、字段权重、长度归一化或 BM25 排序。
+- 英文 / 代码 tokenization 支持 camelCase、PascalCase、snake_case、qualified symbol、路径片段等工程 token。
+- 中文 tokenization 使用 `jieba` search mode、工程词典、领域词动态加词和无分词器 fallback。
+- lexical scoring 使用 BM25-like 字段加权。
+- keyword recall 仍用数据库侧 LIKE 做候选粗召回，应用层做 lexical scoring。
 
 **依赖：** `P1-T1`；`P1-T3` 用于调试展示但不是硬依赖。
 
@@ -240,7 +241,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T8: Domain Vocabulary / Alias Mapping
 
-**状态：** 新增，待转正式需求。
+**状态：** 已实施基础版。
 
 **目标：** 建立业务词、中文表达、代码符号、表名、模块名之间的别名映射，让“支付报文”“订单状态”等中文任务描述能更稳定地召回对应代码和 schema。
 
@@ -301,7 +302,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T10: Retrieval / Multi-Recall / RRF / Trace
 
-**状态：** 已讨论，待转正式需求。
+**状态：** 已实施基础版。
 
 **目标：** 建立多路召回框架、RRF 融合和可解释 trace，让 lexical、vector、symbol 等候选可以统一进入候选集并可调试。
 
@@ -324,7 +325,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T11: Context Composer / Token Budgeting
 
-**状态：** 新增，待转正式需求。
+**状态：** 已实施基础版。
 
 **目标：** 把检索结果组装成适合 Agent 使用的上下文包，解决去重、分组、裁剪、token budget 和主次证据问题。
 
@@ -347,7 +348,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T12: Context Sufficiency / Confidence
 
-**状态：** 新增，待转正式需求。
+**状态：** 已实施基础版。
 
 **目标：** 让 ACP 不只返回结果，还能说明上下文是否足够、证据是否新鲜、是否缺少关键资产，以及 Agent 是否应该继续检索或向用户确认。
 
@@ -369,7 +370,7 @@ Human -> Web Playground -> MCP Server -> Context API / Retrieval -> MCP response
 
 ### P1-T13: Code Graph Implementation Research
 
-**状态：** 已记录，候选参考，未选型。
+**状态：** 已记录候选参考，未完成正式选型。
 
 **目标：** 调研后续实现代码调用图时可参考的开源项目与方案，特别是 `https://github.com/colbymchenry/codegraph`。
 

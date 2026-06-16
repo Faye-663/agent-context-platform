@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-agent-context-platform 按生产级项目维护当前文档和运行边界。当前进展是阶段 0：MVP 开发与验收已完成；后续进入阶段 1：生产化建设，具体计划待定。
+agent-context-platform 按生产级项目维护当前文档和运行边界。当前进展是阶段 0：MVP 开发与验收已完成；Phase 1 基础能力已基本合入 `master`，正在进入真实数据验证和效果调优阶段。
 
-当前正式文档不把后续生产化计划写成既定路线图。正式开发计划和正式测评体系待后续确认。
+当前正式文档不把后续生产化计划写成既定路线图。正式生产化优先级、部署形态和权限边界仍待后续确认。
 
 当前已实现能力：
 
@@ -16,9 +16,14 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 - 索引来源 provenance：`acp-index` 写入 repo、best-effort branch / commit、file hash、index time 和 index batch。
 - Multi code repo 共库隔离：`repo + id` 作为存储身份，检索支持 repo filter。
 - Symbol catalog：`symbols` 按 repo 隔离保存 Java / SQL symbol definitions，供后续 symbol recall 和 code graph 消费。
-- Hybrid Search：关键词、向量、结构化过滤、有界合并和统一 `SearchResult`。
+- Hybrid Search：lexical、vector、symbol 多路召回，RRF 融合和统一 `SearchResult`。
+- 中文 lexical retrieval：`jieba` search mode、工程词典、alias expansion 和无分词器 fallback。
+- Context Composer：token budget、`missing_context`、`risks` 和 citation 汇总。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
+- DebugOptions：search / build-task-context 支持 `debug_options.include_trace`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
+- Evaluation：`eval/golden-tasks.json`、`acp-eval` CLI 和回归测试入口。
+- MCP Web Playground：`playground/` 提供开发调试入口。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
 - Embedding provider：DashScope native、OpenAI-compatible、Jina task mode。
@@ -36,6 +41,8 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 | [当前架构设计](docs/architecture/design.md) | 当前 master 代码对应的架构、入口、配置和边界 |
 | [Context API 契约](docs/api/context-api.md) | HTTP API、MCP 参数透传、模型和错误 envelope |
 | [正式测评待办](docs/evaluation/evaluation-todo.md) | 正式测评体系待确认事项 |
+| [Phase 1 当前状态汇总](docs/planning/phase1-current-status.md) | 三人协作后的当前完成度、风险和下一步 |
+| [2026-06-17 汇报材料](docs/reports/2026-06-17-phase1-review/README.md) | 明天汇报使用的摘要、演示流程和交付对照 |
 | [ADR-001](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | Agent Context First MVP 范围决策 |
 | [ADR-002](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | Hybrid Search 与 PostgreSQL / pgvector 决策 |
 | [ADR-003](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | Python FastAPI 应用栈决策 |
@@ -90,6 +97,7 @@ Agent 基于 source citation 继续设计、修改或 Review
 | `ACP_SQL_ECHO` | SQLAlchemy SQL 日志开关 | 默认 `false` |
 | `ACP_DEFAULT_REPO` | Context API 默认注入的 code repo filter | 默认不注入；应与 `acp-index --repo` 使用同一值 |
 | `ACP_REQUIRE_REPO_FILTER` | 是否要求 search/build-task-context 必须带 repo | 默认 `false`；为 `true` 时请求或 `ACP_DEFAULT_REPO` 必须提供 repo |
+| `ACP_ALIAS_FILE` | 领域词 alias JSON 文件路径 | 可选；用于把中文业务词扩展到代码符号、表名或文档表达 |
 | `ACP_CONTEXT_API_BASE_URL` | MCP wrapper 调用 Context API 的地址 | 默认 `http://127.0.0.1:8000` |
 | `ACP_MCP_TRANSPORT` | `acp-mcp-server` transport | 默认 `stdio`；remote MCP 只支持 `streamable-http` |
 | `ACP_MCP_HOST` | remote MCP HTTP host | 默认 `127.0.0.1` |
