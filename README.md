@@ -18,7 +18,7 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 - Symbol catalog：`symbols` 按 repo 隔离保存 Java / SQL symbol definitions，供后续 symbol recall 和 code graph 消费。
 - Hybrid Search：lexical、vector、symbol 多路召回，RRF 融合和统一 `SearchResult`。
 - 中文 lexical retrieval：`jieba` search mode、工程词典、alias expansion 和无分词器 fallback。
-- Context Composer：token budget、`missing_context`、`risks` 和 citation 汇总。
+- Context Composer：token budget、`missing_context`、待确认项和 citation 汇总。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
 - DebugOptions：search / build-task-context 支持 `debug_options.include_trace`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
@@ -41,8 +41,8 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 | [当前架构设计](docs/architecture/design.md) | 当前 master 代码对应的架构、入口、配置和边界 |
 | [Context API 契约](docs/api/context-api.md) | HTTP API、MCP 参数透传、模型和错误 envelope |
 | [正式测评待办](docs/evaluation/evaluation-todo.md) | 正式测评体系待确认事项 |
-| [Phase 1 当前状态汇总](docs/planning/phase1-current-status.md) | 三人协作后的当前完成度、风险和下一步 |
-| [2026-06-17 汇报材料](docs/reports/2026-06-17-phase1-review/README.md) | 明天汇报使用的摘要、演示流程和交付对照 |
+| [Phase 1 当前状态汇总](docs/planning/phase1-current-status.md) | 三人协作后的当前完成度、待完善项和下一步 |
+| [2026-06-17 Phase 1 状态材料](docs/reports/2026-06-17-phase1-review/README.md) | 阶段成果、验证流程、三人交付对照和后续计划 |
 | [ADR-001](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | Agent Context First MVP 范围决策 |
 | [ADR-002](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | Hybrid Search 与 PostgreSQL / pgvector 决策 |
 | [ADR-003](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | Python FastAPI 应用栈决策 |
@@ -67,12 +67,12 @@ ADR 保持历史原貌，不因进入生产化阶段改写。后续如果出现�
     ↓
 Agent 调用 build-task-context
     ↓
-系统返回相关代码、表结构、文档、相似实现和风险提示
+系统返回相关代码、表结构、文档、相似实现和待确认项
     ↓
 Agent 基于 source citation 继续设计、修改或 Review
 ```
 
-每条返回结果都必须有可追溯来源。`acp-index` 写入的结果会携带 repo、文件 hash、索引时间和索引批次；Git branch / commit 以 best-effort 方式采集，非 Git 目录允许为空。上下文不足时，系统应通过 `missing_context` 或 `risks` 暴露缺口，而不是伪造确定结论。
+每条返回结果都必须有可追溯来源。`acp-index` 写入的结果会携带 repo、文件 hash、索引时间和索引批次；Git branch / commit 以 best-effort 方式采集，非 Git 目录允许为空。上下文不足时，系统应通过 `missing_context` 等结构化字段暴露缺口，而不是伪造确定结论。
 
 ## 运行依赖
 

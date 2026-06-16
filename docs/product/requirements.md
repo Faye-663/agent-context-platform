@@ -28,7 +28,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - Symbol catalog：Java / SQL symbol definitions 按 repo 隔离保存，为 symbol recall 和 code graph 铺底。
 - lexical、vector、symbol 多路召回，RRF 融合和统一 `SearchResult`。
 - 中文 lexical retrieval：`jieba` search mode、工程词典、alias expansion 和无分词器 fallback。
-- Context Composer：token budget、`missing_context`、`risks` 和 citation 汇总。
+- Context Composer：token budget、`missing_context`、待确认项和 citation 汇总。
 - Context API：`/search-code`、`/search-db-schema`、`/search-doc`、`/build-task-context`。
 - DebugOptions：search / build-task-context 支持 `debug_options.include_trace`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。

@@ -20,7 +20,7 @@
 - 简化 trace 输出。
 - MCP Web Playground。
 
-当前剩余：
+待完善项：
 
 - live regression 需要真实 Context API。
 - `_trace` 还未接入 C 的详细 retrieval trace。
@@ -44,7 +44,7 @@
 - 文件变更、删除、移动场景可通过 path scope 重建和清理。
 - symbol recall 和后续 code graph 有基础数据。
 
-当前剩余：
+待完善项：
 
 - `source_item_id` 为空的 symbol 是否参与 recall 需要明确。
 - code graph 仍是 Phase 2，不在当前实现范围。
@@ -68,9 +68,9 @@
 - 领域词 alias expansion。
 - lexical / vector / symbol 多路召回。
 - RRF 融合。
-- Context Composer：token budget、missing context、risks、citations。
+- Context Composer：token budget、missing context、待确认项、citations。
 
-当前剩余：
+待完善项：
 
 - 将内部 `RetrievalTrace` 正式暴露给 API / Playground。
 - 基于真实评测调 BM25 字段权重、RRF 参数和 alias 词表。
