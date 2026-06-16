@@ -1,13 +1,13 @@
-# 演示流程
+# 能力验证流程
 
-## 演示目标
+## 验证目标
 
-让听众看清楚系统做了两件事：
+验证系统已经具备两条主链路：
 
 1. 把工程材料离线索引成可追溯的结构化上下文。
-2. 让 Agent 或人通过 API / MCP 查询这些上下文，并看到来源、风险和缺失信息。
+2. 让 Agent 或人通过 API / MCP 查询这些上下文，并看到来源引用和上下文缺口。
 
-## 推荐演示顺序
+## 推荐验证顺序
 
 ### 1. 展示当前入口
 
@@ -47,14 +47,13 @@ uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/proj
 新增支付宝支付接口，复用已有支付报文生成能力
 ```
 
-讲解返回结果：
+关注返回结果：
 
 - `related_code`
 - `related_db_schema`
 - `related_docs`
 - `similar_implementations`
 - `missing_context`
-- `risks`
 - `citations`
 
 ### 4. 展示检索解释
@@ -98,6 +97,6 @@ uv run acp-eval --tasks eval/golden-tasks.json --api http://127.0.0.1:8000
 
 ## 注意事项
 
-- 不要把 Playground 讲成正式产品后台，它当前是调试入口。
+- Playground 当前是调试入口，不是正式产品后台。
 - 不要承诺 GraphRAG、权限系统、实时索引，这些不在当前 Phase 1 范围。
 - 如果现场没有真实数据库，重点展示接口契约、评测文件和测试结果，不强行演示 live indexing。

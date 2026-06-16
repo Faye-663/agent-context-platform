@@ -1,4 +1,4 @@
-# 汇报摘要
+# 阶段摘要
 
 ## 背景
 
@@ -28,7 +28,7 @@ agent-context-platform 的目标是让 Coding Agent 在改代码前，能拿到�
 - 中文词级 lexical retrieval，支持 `jieba` search mode、工程词典和 fallback。
 - alias expansion：中文业务词映射代码符号、表名、文档表达。
 - lexical / vector / symbol 多路召回，RRF 融合。
-- Context Composer：token budget、missing context、risks、citations。
+- Context Composer：token budget、missing context、待确认项、citations。
 - Context API 和 MCP wrapper。
 - evaluation harness、golden tasks、`acp-eval` CLI。
 - MCP Web Playground，用于直接调试 MCP tools 和查看响应。
@@ -55,6 +55,6 @@ Phase 1 主链路已经基本完成，完成度约 80%-85%。
 - 调整 BM25、RRF、alias、sufficiency 参数。
 - 明确 symbol catalog 中 graph-only symbol 和 recall symbol 的边界。
 
-## 对领导的结论
+## 总体结论
 
 当前项目已经具备继续推进真实项目验证的基础，不再只是 Swagger 上几个接口。下一阶段应该用真实工程数据评估召回质量，而不是继续无边界扩功能。

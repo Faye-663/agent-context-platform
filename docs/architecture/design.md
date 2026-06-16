@@ -67,9 +67,9 @@ IndexedItemRepository + Symbol Catalog + optional EmbeddingProvider
 - `debug_options`：可选；包含 `include_trace`。
 - `request_id`：可选。
 
-`constraints.token_budget` 可选控制 `build-task-context` 返回上下文规模；超出预算时优先保留更靠前的检索证据，并通过 `missing_context` / `risks` 暴露被裁剪后的上下文缺口。
+`constraints.token_budget` 可选控制 `build-task-context` 返回上下文规模；超出预算时优先保留更靠前的检索证据，并通过 `missing_context` 等结构化字段暴露被裁剪后的上下文缺口。
 
-API 层只负责请求校验、错误 envelope 和日志包装，检索由 `HybridSearchService` 执行，上下文检索编排由 `TaskContextBuilder` 执行，结果裁剪、缺口判断、风险和 citation 汇总由 `ContextComposer` 执行。
+API 层只负责请求校验、错误 envelope 和日志包装，检索由 `HybridSearchService` 执行，上下文检索编排由 `TaskContextBuilder` 执行，结果裁剪、缺口判断、待确认项和 citation 汇总由 `ContextComposer` 执行。
 
 ## 数据模型
 
