@@ -26,7 +26,7 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 - MCP Web Playground：`playground/` 提供开发调试入口。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
-- Embedding provider：OpenAI-compatible `/v1/embeddings`。
+- Embedding provider：OpenAI-compatible `/v1/embeddings` 和 message-style `/infer`。
 - 多模型 embedding 存储：`item_embeddings` 按 provider、model 和 dimension 隔离向量空间。
 - Remote MCP HTTP：`ACP_MCP_TRANSPORT=streamable-http`。
 - MCP JSONL 调试日志：默认关闭，可显式写摘要或完整 payload。
@@ -105,8 +105,8 @@ Agent 基于 source citation 继续设计、修改或 Review
 | `ACP_MCP_PATH` | remote MCP HTTP endpoint path | 默认 `/mcp`，必须以 `/` 开头 |
 | `ACP_MCP_LOG_FILE` | MCP JSONL 调试日志路径 | 默认不写；父目录必须已存在 |
 | `ACP_MCP_LOG_PAYLOADS` | 是否写完整 tool arguments 和 result | 默认 `false` |
-| `ACP_EMBEDDING_PROVIDER` | embedding provider | 可选；当前只支持 `openai`，不填时默认 `openai` |
-| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | OpenAI-compatible embedding 配置组 | 如果填写其中任意一项，则必须整组填写；`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数 |
+| `ACP_EMBEDDING_PROVIDER` | embedding provider | 可选 `openai` 或 `infer`；不填时默认 `openai` |
+| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding 配置组 | 如果填写其中任意一项，则必须整组填写；`openai` 会自动使用 `/embeddings`，`infer` 必须填完整 `/infer` endpoint |
 
 ## 快速开始
 
@@ -116,7 +116,7 @@ Agent 基于 source citation 继续设计、修改或 Review
    Copy-Item .env.example .env
    ```
 
-2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，确认 `ACP_EMBEDDING_BASE_URL`、`ACP_EMBEDDING_API_KEY`、`ACP_EMBEDDING_MODEL`、`ACP_EMBEDDING_DIMENSION` 和 `ACP_EMBEDDING_BATCH_SIZE` 已配置。
+2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，确认 `ACP_EMBEDDING_PROVIDER`、`ACP_EMBEDDING_BASE_URL`、`ACP_EMBEDDING_API_KEY`、`ACP_EMBEDDING_MODEL`、`ACP_EMBEDDING_DIMENSION` 和 `ACP_EMBEDDING_BATCH_SIZE` 已配置。
 
 3. 设置本仓库本地依赖缓存：
 
@@ -177,7 +177,7 @@ Agent 基于 source citation 继续设计、修改或 Review
    - 文件移动：只传入新路径只会写入新 item；还需要传入旧路径所在目录，或传入共同上级目录，例如 `--path src/main/java`。
    - 整个 repo 换目录：只需改变 `--root`，保持同一个 `--repo` 和 repo 内相对 `--path`。例如从 `D:\Code\YourProject` 换到 `E:\Work\YourProject` 后继续运行 `--root E:\Work\YourProject --repo gitlab.example.com/group/project --path src/main/java/example`。
 
-   如需同时写入 embedding，必须补齐 OpenAI-compatible embedding 配置并显式开启：
+   如需同时写入 embedding，必须补齐 embedding 配置并显式开启：
 
    ```powershell
    uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project --with-embedding
@@ -191,6 +191,7 @@ Agent 基于 source citation 继续设计、修改或 Review
      --repo gitlab.example.com/group/project `
      --database-url "$env:ACP_DATABASE_URL" `
      --with-embedding `
+     --embedding-provider "$env:ACP_EMBEDDING_PROVIDER" `
      --embedding-base-url "$env:ACP_EMBEDDING_BASE_URL" `
      --embedding-api-key "$env:ACP_EMBEDDING_API_KEY" `
      --embedding-model "$env:ACP_EMBEDDING_MODEL" `

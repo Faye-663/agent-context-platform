@@ -12,6 +12,7 @@ from agent_context_platform.embeddings import (
     EmbeddingDimensionError,
     EmbeddingIdentity,
     EmbeddingProviderError,
+    InferEmbeddingProvider,
     OpenAICompatibleEmbeddingProvider,
     embed_and_save_items,
 )
@@ -114,6 +115,63 @@ def test_openai_compatible_provider_reports_detail_error() -> None:
         match="INPUT_TOKEN_LIMIT_EXCEEDED.*Input text exceeds",
     ):
         provider.embed_texts(["alpha"])
+
+
+def test_infer_provider_posts_messages_to_exact_endpoint_and_parses_vectors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://gateway.example.test/infer"
+        assert request.headers["authorization"] == "Bearer test-key"
+        payload = json.loads(request.content)
+        assert payload == {
+            "model": "bge-m3",
+            "messages": [{"role": "user", "content": "Hello!"}],
+        }
+        return httpx.Response(
+            200,
+            json={"data": {"embedding": [1.0, 0.0, 0.0]}},
+        )
+
+    provider = InferEmbeddingProvider(
+        base_url="http://gateway.example.test/infer",
+        api_key="test-key",
+        model="bge-m3",
+        dimension=3,
+        batch_size=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert provider.identity == EmbeddingIdentity(
+        provider="infer", model="bge-m3", dimension=3
+    )
+    assert provider.embed_texts(["Hello!"]) == [[1.0, 0.0, 0.0]]
+
+
+def test_infer_provider_parses_embedding_from_message_content() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer explicit-key"
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "{\"embedding\": [0.0, 1.0, 0.0]}"
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = InferEmbeddingProvider(
+        base_url="http://gateway.example.test/infer",
+        api_key="Bearer explicit-key",
+        model="bge-m3",
+        dimension=3,
+        batch_size=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert provider.embed_query("Hello!") == [0.0, 1.0, 0.0]
 
 
 class FakeEmbeddingProvider:

@@ -537,8 +537,8 @@ def test_with_embedding_accepts_cli_configuration(tmp_path: Path) -> None:
     def provider_factory(settings):
         seen_database_urls.append(settings.database_url)
         assert settings.embedding is not None
-        assert settings.embedding.provider == "openai"
-        assert settings.embedding.base_url == "https://embedding.example.test/v1"
+        assert settings.embedding.provider == "infer"
+        assert settings.embedding.base_url == "https://embedding.example.test/infer"
         assert settings.embedding.api_key == "secret"
         assert settings.embedding.model == "mvp-index-cli"
         assert settings.embedding.dimension == 3
@@ -554,8 +554,10 @@ def test_with_embedding_accepts_cli_configuration(tmp_path: Path) -> None:
             "--database-url",
             f"sqlite:///{sqlite_db.as_posix()}",
             "--with-embedding",
+            "--embedding-provider",
+            "infer",
             "--embedding-base-url",
-            "https://embedding.example.test/v1",
+            "https://embedding.example.test/infer",
             "--embedding-api-key",
             "secret",
             "--embedding-model",

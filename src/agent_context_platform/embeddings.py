@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -117,7 +118,7 @@ class OpenAICompatibleEmbeddingProvider:
             response = self._client.post(
                 self.endpoint,
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": _authorization_header(self.api_key),
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -158,6 +159,99 @@ class OpenAICompatibleEmbeddingProvider:
         for embedding in embeddings:
             _validate_embedding_dimension(embedding, self.identity)
         return embeddings
+
+
+class InferEmbeddingProvider:
+    """Embedding provider for message-style `/infer` gateways.
+
+    This provider intentionally does not append `/embeddings`; `base_url` is the
+    exact endpoint used for POST requests.
+    """
+
+    def __init__(
+        self,
+        *,
+        provider: str = "infer",
+        base_url: str,
+        api_key: str,
+        model: str,
+        dimension: int,
+        batch_size: int,
+        client: httpx.Client | None = None,
+        timeout: float = 60.0,
+    ) -> None:
+        provider_name = provider.strip().lower()
+        if not provider_name:
+            raise ValueError("infer provider must not be empty")
+        if not base_url.strip():
+            raise ValueError("infer base_url must not be empty")
+        if not api_key.strip():
+            raise ValueError("infer api_key must not be empty")
+        if batch_size <= 0:
+            raise ValueError("infer batch_size must be positive")
+
+        self.provider = provider_name
+        self.endpoint = base_url.strip().rstrip("/")
+        self.api_key = api_key
+        self.model = model
+        self.batch_size = batch_size
+        self.timeout = timeout
+        self.identity = EmbeddingIdentity(
+            provider=provider_name,
+            model=model,
+            dimension=dimension,
+        )
+        self._client = client or httpx.Client()
+
+    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+        for text in texts:
+            embeddings.append(self.embed_query(text))
+        return embeddings
+
+    def embed_query(self, text: str) -> list[float]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": text}],
+        }
+        try:
+            response = self._client.post(
+                self.endpoint,
+                headers={
+                    "Authorization": _authorization_header(self.api_key),
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError as exc:
+            logger.exception(
+                "embedding_provider_error provider=%s endpoint_path=/infer model=%s",
+                self.provider,
+                self.model,
+            )
+            raise EmbeddingProviderError(
+                f"{self.provider} embedding request failed: {exc}"
+            ) from exc
+
+        if response.status_code >= 400:
+            code, message = _provider_error(response)
+            logger.error(
+                "embedding_provider_error provider=%s endpoint_path=/infer "
+                "model=%s status_code=%s error_code=%s",
+                self.provider,
+                self.model,
+                response.status_code,
+                code,
+            )
+            raise EmbeddingProviderError(
+                f"{self.provider} embedding request failed with "
+                f"{response.status_code}: {code} {message}".strip()
+            )
+
+        embedding = _parse_infer_embedding(response)
+        _validate_embedding_dimension(embedding, self.identity)
+        return embedding
 
 
 def embed_and_save_items(
@@ -220,6 +314,83 @@ def _parse_openai_compatible_embeddings(response: httpx.Response) -> list[list[f
             ) from exc
         embeddings_by_index[index] = [float(value) for value in embedding]
     return [embeddings_by_index[index] for index in sorted(embeddings_by_index)]
+
+
+def _parse_infer_embedding(response: httpx.Response) -> list[float]:
+    try:
+        raw = response.json()
+    except ValueError as exc:
+        raise EmbeddingProviderError("infer embedding response is not valid JSON") from exc
+
+    embedding = _extract_embedding(raw)
+    if embedding is None:
+        raise EmbeddingProviderError("infer embedding response shape is invalid")
+    return embedding
+
+
+def _extract_embedding(value: Any) -> list[float] | None:
+    if _is_number_sequence(value):
+        return [float(item) for item in value]
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return _extract_embedding(json.loads(stripped))
+        except ValueError:
+            return None
+
+    if isinstance(value, list):
+        if len(value) == 1:
+            return _extract_embedding(value[0])
+        return None
+
+    if not isinstance(value, dict):
+        return None
+
+    for key in ("embedding", "vector"):
+        if key in value:
+            embedding = _extract_embedding(value[key])
+            if embedding is not None:
+                return embedding
+
+    for key in ("embeddings", "vectors"):
+        if key in value:
+            embedding = _extract_embedding(value[key])
+            if embedding is not None:
+                return embedding
+
+    choices = value.get("choices")
+    if isinstance(choices, list) and choices:
+        message = _mapping_value(choices[0], "message")
+        content = _mapping_value(message, "content")
+        embedding = _extract_embedding(content)
+        if embedding is not None:
+            return embedding
+
+    for key in ("data", "output", "result"):
+        if key in value:
+            embedding = _extract_embedding(value[key])
+            if embedding is not None:
+                return embedding
+
+    return None
+
+
+def _is_number_sequence(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, (int, float)) for item in value)
+    )
+
+
+def _authorization_header(api_key: str) -> str:
+    value = api_key.strip()
+    if " " in value:
+        return value
+    return f"Bearer {value}"
 
 
 def _provider_error(response: httpx.Response) -> tuple[str, str]:

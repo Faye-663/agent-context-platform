@@ -102,8 +102,24 @@ def test_build_embedding_provider_creates_openai_compatible_provider() -> None:
     assert provider.identity.model == "embedding-model"
 
 
+def test_build_embedding_provider_creates_infer_provider() -> None:
+    provider = build_embedding_provider(
+        EmbeddingProviderSettings(
+            provider="infer",
+            base_url="http://gateway.example.test/infer",
+            api_key="test-key",
+            model="bge-m3",
+            dimension=1024,
+            batch_size=1,
+        )
+    )
+
+    assert provider.identity.provider == "infer"
+    assert provider.identity.model == "bge-m3"
+
+
 def test_build_embedding_provider_rejects_unsupported_provider() -> None:
-    with pytest.raises(RuntimeConfigError, match="openai"):
+    with pytest.raises(RuntimeConfigError, match="openai.*infer"):
         build_embedding_provider(
             EmbeddingProviderSettings(
                 provider="legacy",

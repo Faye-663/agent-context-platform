@@ -14,6 +14,7 @@ from agent_context_platform.aliases import DomainVocabulary
 from agent_context_platform.api import create_app
 from agent_context_platform.embeddings import (
     EmbeddingProvider,
+    InferEmbeddingProvider,
     OpenAICompatibleEmbeddingProvider,
 )
 from agent_context_platform.retrieval import HybridSearchService
@@ -31,11 +32,12 @@ class RuntimeConfigError(ValueError):
 class EmbeddingProviderSettings(BaseModel):
     """外部 embedding provider 的运行配置。
 
-    例子：OpenAI-compatible base_url + api_key + model + dimension + batch_size。
+    例子：OpenAI-compatible `/embeddings` 或 message-style `/infer` 的
+    base_url + api_key + model + dimension + batch_size。
     这里的 dimension 会一路传到 EmbeddingIdentity，用来保护向量比较边界。
     """
 
-    # 目前只保留 OpenAI-compatible /embeddings 协议；字段保留用于身份标识和兼容旧配置。
+    # provider 选择请求协议：openai 使用 /embeddings，infer 精确使用 base_url。
     provider: str = Field(default="openai", min_length=1)
     # base_url 是 provider API 根地址，不包含具体 embedding path。
     base_url: str = Field(min_length=1)
@@ -235,8 +237,18 @@ def build_embedding_provider(settings: EmbeddingProviderSettings) -> EmbeddingPr
             dimension=settings.dimension,
             batch_size=settings.batch_size,
         )
+    if provider == "infer":
+        return InferEmbeddingProvider(
+            provider=provider,
+            base_url=settings.base_url,
+            api_key=settings.api_key,
+            model=settings.model,
+            dimension=settings.dimension,
+            batch_size=settings.batch_size,
+        )
     raise RuntimeConfigError(
-        "ACP_EMBEDDING_PROVIDER 目前只支持 openai（OpenAI-compatible /embeddings）。"
+        "ACP_EMBEDDING_PROVIDER 目前只支持 openai（OpenAI-compatible /embeddings）"
+        "或 infer（message-style /infer）。"
     )
 
 
