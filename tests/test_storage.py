@@ -289,7 +289,7 @@ def test_repository_rejects_persisted_items_without_repo() -> None:
 def test_repository_lists_and_deletes_items_by_repo_path() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+    identity = EmbeddingIdentity(provider="openai", model="model-a", dimension=3)
     payment_item = make_item(
         "code:PaymentService.build",
         SourceCitation(
@@ -387,8 +387,8 @@ def test_item_embedding_table_keeps_dynamic_dimension_check() -> None:
 def test_repository_stores_embeddings_by_provider_model_and_dimension() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    identity_v1 = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
-    identity_v2 = EmbeddingIdentity(provider="dashscope", model="model-b", dimension=2)
+    identity_v1 = EmbeddingIdentity(provider="openai", model="model-a", dimension=3)
+    identity_v2 = EmbeddingIdentity(provider="openai", model="model-b", dimension=2)
     item = make_item(
         "code:PaymentMessageBuilder.build",
         SourceCitation(
@@ -421,7 +421,7 @@ def test_repository_stores_embeddings_by_provider_model_and_dimension() -> None:
         missing_results = repository.list_with_embeddings(
             asset_type=AssetType.CODE,
             embedding_identity=EmbeddingIdentity(
-                provider="dashscope", model="model-c", dimension=3
+                provider="openai", model="model-c", dimension=3
             ),
         )
 
@@ -450,7 +450,7 @@ def test_repository_rejects_embedding_identity_dimension_mismatch() -> None:
                 item,
                 embedding=[0.1, 0.2],
                 embedding_identity=EmbeddingIdentity(
-                    provider="dashscope", model="model-a", dimension=3
+                    provider="openai", model="model-a", dimension=3
                 ),
             )
         except ValueError as exc:
@@ -462,8 +462,8 @@ def test_repository_rejects_embedding_identity_dimension_mismatch() -> None:
 def test_repository_vector_search_orders_filters_and_limits_candidates() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
-    other_identity = EmbeddingIdentity(provider="dashscope", model="model-b", dimension=3)
+    identity = EmbeddingIdentity(provider="openai", model="model-a", dimension=3)
+    other_identity = EmbeddingIdentity(provider="openai", model="model-b", dimension=3)
     matching = make_item(
         "code:InvoicePrinter.print",
         SourceCitation(
@@ -531,7 +531,7 @@ def test_repository_vector_search_orders_filters_and_limits_candidates() -> None
 
 
 def test_pgvector_search_statement_uses_cosine_distance_and_limit() -> None:
-    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+    identity = EmbeddingIdentity(provider="openai", model="model-a", dimension=3)
 
     statement = build_pgvector_search_statement(
         asset_type=AssetType.CODE,
@@ -555,7 +555,7 @@ def test_pgvector_search_statement_uses_cosine_distance_and_limit() -> None:
 def test_repository_vector_search_rejects_query_dimension_mismatch() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    identity = EmbeddingIdentity(provider="dashscope", model="model-a", dimension=3)
+    identity = EmbeddingIdentity(provider="openai", model="model-a", dimension=3)
 
     with Session(engine) as session:
         repository = IndexedItemRepository(session)

@@ -116,7 +116,10 @@ def run(
     started = time.perf_counter()
     args = _parse_args(argv)
     output = stdout or sys.stdout
-    values = dict(os.environ if environ is None else environ)
+    values = _apply_cli_config_overrides(
+        dict(os.environ if environ is None else environ),
+        args,
+    )
     failures: list[Failure] = []
 
     root = args.root.resolve()
@@ -259,6 +262,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--root", required=True, type=Path, help="Project root to scan.")
     parser.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Overrides ACP_DATABASE_URL for this command.",
+    )
+    parser.add_argument(
         "--repo",
         default=None,
         help="Repository identifier to store in source citations. Defaults to root name.",
@@ -271,7 +279,32 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--with-embedding",
         action="store_true",
-        help="Generate and write item embeddings using ACP_EMBEDDING_* settings.",
+        help="Generate and write item embeddings using embedding CLI flags or ACP_EMBEDDING_* settings.",
+    )
+    parser.add_argument(
+        "--embedding-base-url",
+        default=None,
+        help="OpenAI-compatible embedding API base URL. Overrides ACP_EMBEDDING_BASE_URL.",
+    )
+    parser.add_argument(
+        "--embedding-api-key",
+        default=None,
+        help="Embedding API key. Overrides ACP_EMBEDDING_API_KEY for this process only.",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="Embedding model name. Overrides ACP_EMBEDDING_MODEL.",
+    )
+    parser.add_argument(
+        "--embedding-dimension",
+        default=None,
+        help="Embedding vector dimension. Overrides ACP_EMBEDDING_DIMENSION.",
+    )
+    parser.add_argument(
+        "--embedding-batch-size",
+        default=None,
+        help="Embedding request batch size. Overrides ACP_EMBEDDING_BATCH_SIZE.",
     )
     parser.add_argument(
         "--include",
@@ -290,6 +323,35 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Relative file or directory path to reindex. Can be passed multiple times.",
     )
     return parser.parse_args(argv)
+
+
+def _apply_cli_config_overrides(
+    values: dict[str, str],
+    args: argparse.Namespace,
+) -> dict[str, str]:
+    overrides = {
+        "ACP_DATABASE_URL": args.database_url,
+        "ACP_EMBEDDING_BASE_URL": args.embedding_base_url,
+        "ACP_EMBEDDING_API_KEY": args.embedding_api_key,
+        "ACP_EMBEDDING_MODEL": args.embedding_model,
+        "ACP_EMBEDDING_DIMENSION": args.embedding_dimension,
+        "ACP_EMBEDDING_BATCH_SIZE": args.embedding_batch_size,
+    }
+    for name, value in overrides.items():
+        if value is not None:
+            values[name] = str(value)
+    if any(
+        value is not None
+        for value in (
+            args.embedding_base_url,
+            args.embedding_api_key,
+            args.embedding_model,
+            args.embedding_dimension,
+            args.embedding_batch_size,
+        )
+    ):
+        values["ACP_EMBEDDING_PROVIDER"] = "openai"
+    return values
 
 
 def _build_index_scope(

@@ -297,14 +297,14 @@ def test_hybrid_search_merges_bounded_keyword_and_vector_candidates() -> None:
     assert results[1].score_parts["vector"] == 1.0
 
 
-def test_hybrid_search_generates_query_embedding_with_query_mode() -> None:
+def test_hybrid_search_generates_query_embedding_with_provider_hook() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = Session(engine)
     repository = IndexedItemRepository(session)
     identity = EmbeddingIdentity(
-        provider="jina:retrieval.passage>retrieval.query",
-        model="jina-embeddings-v4",
+        provider="openai",
+        model="embedding-model",
         dimension=3,
     )
     provider = QueryModeEmbeddingProvider(identity)

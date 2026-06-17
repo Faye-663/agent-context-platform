@@ -52,43 +52,68 @@ def test_load_runtime_settings_reads_runtime_and_embedding_values() -> None:
     assert settings.embedding.batch_size == 32
 
 
-def test_load_runtime_settings_reads_openai_compatible_provider_values() -> None:
+def test_load_runtime_settings_reads_openai_provider_values() -> None:
     settings = load_runtime_settings(
         {
             "ACP_DATABASE_URL": "sqlite:///runtime.db",
-            "ACP_EMBEDDING_PROVIDER": "jina",
-            "ACP_EMBEDDING_BASE_URL": "https://api.jina.ai/v1",
+            "ACP_EMBEDDING_PROVIDER": "openai",
+            "ACP_EMBEDDING_BASE_URL": "https://api.openai.example/v1",
             "ACP_EMBEDDING_API_KEY": "test-key",
-            "ACP_EMBEDDING_MODEL": "jina-embeddings-v4",
+            "ACP_EMBEDDING_MODEL": "embedding-model",
             "ACP_EMBEDDING_DIMENSION": "2048",
             "ACP_EMBEDDING_BATCH_SIZE": "16",
-            "ACP_EMBEDDING_DOCUMENT_TASK": "code.passage",
-            "ACP_EMBEDDING_QUERY_TASK": "code.query",
         }
     )
 
     assert settings.embedding is not None
-    assert settings.embedding.provider == "jina"
-    assert settings.embedding.document_task == "code.passage"
-    assert settings.embedding.query_task == "code.query"
+    assert settings.embedding.provider == "openai"
+    assert settings.embedding.model == "embedding-model"
 
 
-def test_build_embedding_provider_creates_jina_openai_compatible_provider() -> None:
+def test_load_runtime_settings_defaults_embedding_provider_to_openai() -> None:
+    settings = load_runtime_settings(
+        {
+            "ACP_DATABASE_URL": "sqlite:///runtime.db",
+            "ACP_EMBEDDING_BASE_URL": "https://api.openai.example/v1",
+            "ACP_EMBEDDING_API_KEY": "test-key",
+            "ACP_EMBEDDING_MODEL": "embedding-model",
+            "ACP_EMBEDDING_DIMENSION": "2048",
+            "ACP_EMBEDDING_BATCH_SIZE": "16",
+        }
+    )
+
+    assert settings.embedding is not None
+    assert settings.embedding.provider == "openai"
+
+
+def test_build_embedding_provider_creates_openai_compatible_provider() -> None:
     provider = build_embedding_provider(
         EmbeddingProviderSettings(
-            provider="jina",
-            base_url="https://api.jina.ai/v1",
+            provider="openai",
+            base_url="https://api.openai.example/v1",
             api_key="test-key",
-            model="jina-embeddings-v4",
+            model="embedding-model",
             dimension=2048,
             batch_size=16,
-            document_task="retrieval.passage",
-            query_task="retrieval.query",
         )
     )
 
-    assert provider.identity.provider == "jina:retrieval.passage>retrieval.query"
-    assert provider.identity.model == "jina-embeddings-v4"
+    assert provider.identity.provider == "openai"
+    assert provider.identity.model == "embedding-model"
+
+
+def test_build_embedding_provider_rejects_unsupported_provider() -> None:
+    with pytest.raises(RuntimeConfigError, match="openai"):
+        build_embedding_provider(
+            EmbeddingProviderSettings(
+                provider="legacy",
+                base_url="https://embedding.example.com/v1",
+                api_key="test-key",
+                model="embedding-model",
+                dimension=1024,
+                batch_size=16,
+            )
+        )
 
 
 def test_load_runtime_settings_rejects_partial_embedding_configuration() -> None:
@@ -106,7 +131,7 @@ def test_load_runtime_settings_rejects_empty_embedding_batch_size() -> None:
         load_runtime_settings(
             {
                 "ACP_DATABASE_URL": "sqlite:///runtime.db",
-                "ACP_EMBEDDING_BASE_URL": "https://dashscope.aliyuncs.com/api/v1",
+                "ACP_EMBEDDING_BASE_URL": "https://api.openai.example/v1",
                 "ACP_EMBEDDING_API_KEY": "test-key",
                 "ACP_EMBEDDING_MODEL": "embedding-model",
                 "ACP_EMBEDDING_DIMENSION": "1024",
@@ -120,7 +145,7 @@ def test_load_runtime_settings_rejects_zero_embedding_batch_size() -> None:
         load_runtime_settings(
             {
                 "ACP_DATABASE_URL": "sqlite:///runtime.db",
-                "ACP_EMBEDDING_BASE_URL": "https://dashscope.aliyuncs.com/api/v1",
+                "ACP_EMBEDDING_BASE_URL": "https://api.openai.example/v1",
                 "ACP_EMBEDDING_API_KEY": "test-key",
                 "ACP_EMBEDDING_MODEL": "embedding-model",
                 "ACP_EMBEDDING_DIMENSION": "1024",

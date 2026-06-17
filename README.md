@@ -26,8 +26,8 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 - MCP Web Playground：`playground/` 提供开发调试入口。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
-- Embedding provider：DashScope native、OpenAI-compatible、Jina task mode。
-- 多模型 embedding 存储：`item_embeddings` 按 provider、model、dimension 和 task identity 隔离向量空间。
+- Embedding provider：OpenAI-compatible `/v1/embeddings`。
+- 多模型 embedding 存储：`item_embeddings` 按 provider、model 和 dimension 隔离向量空间。
 - Remote MCP HTTP：`ACP_MCP_TRANSPORT=streamable-http`。
 - MCP JSONL 调试日志：默认关闭，可显式写摘要或完整 payload。
 
@@ -105,9 +105,8 @@ Agent 基于 source citation 继续设计、修改或 Review
 | `ACP_MCP_PATH` | remote MCP HTTP endpoint path | 默认 `/mcp`，必须以 `/` 开头 |
 | `ACP_MCP_LOG_FILE` | MCP JSONL 调试日志路径 | 默认不写；父目录必须已存在 |
 | `ACP_MCP_LOG_PAYLOADS` | 是否写完整 tool arguments 和 result | 默认 `false` |
-| `ACP_EMBEDDING_PROVIDER` | embedding provider | 可选 `dashscope`、`openai`、`jina`；不填时默认 `dashscope` |
-| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | embedding provider 基础配置组 | 如果填写其中任意一项，则必须整组填写；`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数 |
-| `ACP_EMBEDDING_DOCUMENT_TASK` / `ACP_EMBEDDING_QUERY_TASK` | Jina / OpenAI-compatible task mode | 可选；`provider=jina` 默认 `retrieval.passage` / `retrieval.query` |
+| `ACP_EMBEDDING_PROVIDER` | embedding provider | 可选；当前只支持 `openai`，不填时默认 `openai` |
+| `ACP_EMBEDDING_BASE_URL` / `ACP_EMBEDDING_API_KEY` / `ACP_EMBEDDING_MODEL` / `ACP_EMBEDDING_DIMENSION` / `ACP_EMBEDDING_BATCH_SIZE` | OpenAI-compatible embedding 配置组 | 如果填写其中任意一项，则必须整组填写；`ACP_EMBEDDING_BATCH_SIZE` 必须为正整数 |
 
 ## 快速开始
 
@@ -117,7 +116,7 @@ Agent 基于 source citation 继续设计、修改或 Review
    Copy-Item .env.example .env
    ```
 
-2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，还必须确认 `ACP_EMBEDDING_*` 与当前 provider 匹配。
+2. 编辑 `.env`，至少确认 `ACP_DATABASE_URL` 指向可用 PostgreSQL / pgvector 数据库。需要写入 embedding 时，确认 `ACP_EMBEDDING_BASE_URL`、`ACP_EMBEDDING_API_KEY`、`ACP_EMBEDDING_MODEL`、`ACP_EMBEDDING_DIMENSION` 和 `ACP_EMBEDDING_BATCH_SIZE` 已配置。
 
 3. 设置本仓库本地依赖缓存：
 
@@ -178,10 +177,25 @@ Agent 基于 source citation 继续设计、修改或 Review
    - 文件移动：只传入新路径只会写入新 item；还需要传入旧路径所在目录，或传入共同上级目录，例如 `--path src/main/java`。
    - 整个 repo 换目录：只需改变 `--root`，保持同一个 `--repo` 和 repo 内相对 `--path`。例如从 `D:\Code\YourProject` 换到 `E:\Work\YourProject` 后继续运行 `--root E:\Work\YourProject --repo gitlab.example.com/group/project --path src/main/java/example`。
 
-   如需同时写入 embedding，必须补齐 `ACP_EMBEDDING_*` 并显式开启：
+   如需同时写入 embedding，必须补齐 OpenAI-compatible embedding 配置并显式开启：
 
    ```powershell
    uv run acp-index --root D:\Code\YourProject --repo gitlab.example.com/group/project --with-embedding
+   ```
+
+   也可以把索引所需配置直接放到 CLI 参数里，减少新手对 `.env` 加载顺序的依赖：
+
+   ```powershell
+   uv run acp-index `
+     --root D:\Code\YourProject `
+     --repo gitlab.example.com/group/project `
+     --database-url "$env:ACP_DATABASE_URL" `
+     --with-embedding `
+     --embedding-base-url "$env:ACP_EMBEDDING_BASE_URL" `
+     --embedding-api-key "$env:ACP_EMBEDDING_API_KEY" `
+     --embedding-model "$env:ACP_EMBEDDING_MODEL" `
+     --embedding-dimension "$env:ACP_EMBEDDING_DIMENSION" `
+     --embedding-batch-size "$env:ACP_EMBEDDING_BATCH_SIZE"
    ```
 
 8. 启动 Context API：
@@ -216,13 +230,13 @@ Agent 基于 source citation 继续设计、修改或 Review
 
 MCP server 是 Context API 的包装层。它依赖可访问的 HTTP 服务，不直接访问 repository、SQLAlchemy session 或数据库。
 
-真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、`--path` 手动增量索引、复用 `ACP_DATABASE_URL` 写库和 JSON 摘要；摘要包含 `scope_paths`、`files_changed`、`files_unchanged`、`files_deleted`、`items_deleted`、`symbols_deleted`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
+真实项目入库入口是离线批处理命令 `acp-index`，不是 Context API 或 MCP server 的一部分。`acp-index` 支持 `dry-run`、include/exclude、显式 repo 标识、`--path` 手动增量索引、`--database-url` CLI 覆盖、embedding CLI 参数覆盖和 JSON 摘要；摘要包含 `scope_paths`、`files_changed`、`files_unchanged`、`files_deleted`、`items_deleted`、`symbols_deleted`、`branch`、`commit_sha`、`indexed_at`、`index_batch_id` 和 `provenance_warnings`。embedding 写入必须显式传入 `--with-embedding`。
 
 同一数据库可以保存多个 GitLab code repo 的索引；`indexed_items`、`item_embeddings` 和 `symbols` 都按 repo 隔离。升级到 repo-scoped identity 或 symbol catalog schema 后，历史索引数据需要重新执行 `acp-index` 重建，不做旧数据归属猜测。
 
 MCP JSONL 调试日志默认关闭。开启 `ACP_MCP_LOG_FILE` 后，日志记录 FastMCP 完成 schema 解析后的 tool name、structured arguments 摘要、Context API 返回摘要、错误和耗时；它不抓 raw JSON-RPC wire frame。只有 `ACP_MCP_LOG_PAYLOADS=true` 时才写完整 payload。
 
-切换 provider、model、dimension 或 Jina task pair 时，必须使用匹配的 `item_embeddings` 向量空间，不能混用不同向量空间。
+切换 embedding model 或 dimension 时，必须使用匹配的 `item_embeddings` 向量空间，不能混用不同向量空间。
 
 ## 本地验证
 

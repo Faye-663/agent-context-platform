@@ -149,7 +149,7 @@ def _normalize_indexed_at(value: datetime | None) -> datetime | None:
 class ItemEmbeddingRecord(Base):
     """item_embeddings 表的 ORM 映射。
 
-    例子：同一个 item_id 可以同时保存 dashscope/1024 维和 fake/3 维两套向量。
+    例子：同一个 item_id 可以同时保存 openai/1024 维和 fake/3 维两套向量。
     """
 
     __tablename__ = "item_embeddings"
