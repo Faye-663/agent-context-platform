@@ -98,7 +98,7 @@ API 层只负责请求校验、错误 envelope 和日志包装，检索由 `Hybr
 `IndexedItemRepository` 保存：
 
 - `indexed_items`：工程资产、结构化 metadata 和来源字段；存储身份为 `(repo, id)`。
-- `item_embeddings`：按 `repo`、item id、provider、model、dimension 和 task identity 保存 embedding。
+- `item_embeddings`：按 `repo`、item id、provider、model 和 dimension 保存 embedding。
 - `symbols`：按 `(repo, symbol_id)` 保存 Java / SQL symbol definitions；`source_item_id` 指向同 repo 下可展示或可检索的 `IndexedItem`。
 
 查询和写入必须使用匹配的 embedding identity，避免不同向量空间混用。
@@ -166,8 +166,6 @@ MCP wrapper 只通过 `ContextApiToolClient` 调用 Context API，不直连 repo
 - `ACP_EMBEDDING_MODEL`
 - `ACP_EMBEDDING_DIMENSION`
 - `ACP_EMBEDDING_BATCH_SIZE`
-- `ACP_EMBEDDING_DOCUMENT_TASK`
-- `ACP_EMBEDDING_QUERY_TASK`
 
 ## 当前限制
 

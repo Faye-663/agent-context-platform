@@ -36,7 +36,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - MCP Web Playground：开发调试入口。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
-- Embedding provider：DashScope native、OpenAI-compatible、Jina task mode。
+- Embedding provider：OpenAI-compatible `/v1/embeddings`。
 - Remote MCP HTTP：`ACP_MCP_TRANSPORT=streamable-http`。
 - MCP JSONL 调试日志：默认关闭，可显式输出摘要或完整 payload。
 
@@ -66,8 +66,8 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 
 ### 3. 向量空间隔离
 
-- item embedding 必须按 provider、model、dimension 和 task identity 隔离。
-- 查询和写入必须使用匹配的向量空间，不能混用不同 provider、model、dimension 或 Jina task pair。
+- item embedding 必须按 provider、model 和 dimension 隔离。
+- 查询和写入必须使用匹配的向量空间，不能混用不同 provider、model 或 dimension。
 - provider 配置不完整、维度不匹配或 provider 调用失败时必须明确失败，不静默降级。
 
 ### 4. Agent 接入

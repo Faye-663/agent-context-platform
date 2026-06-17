@@ -11,9 +11,6 @@ from agent_context_platform.models import IndexedItem
 
 
 logger = logging.getLogger(__name__)
-_DASHSCOPE_MULTIMODAL_PATH = (
-    "/services/embeddings/multimodal-embedding/multimodal-embedding"
-)
 _OPENAI_EMBEDDINGS_PATH = "/embeddings"
 
 
@@ -29,11 +26,11 @@ class EmbeddingDimensionError(ValueError):
 class EmbeddingIdentity:
     """一个 embedding 向量空间的身份。
 
-    例子：provider="dashscope", model="text-embedding-v4", dimension=1024。
+    例子：provider="openai", model="Qwen3-Embedding-4B", dimension=1024。
     只有三者都相同的向量才可以直接做相似度比较。
     """
 
-    # provider 是服务商或实现名，例如 "dashscope" 或测试里的 "fake"。
+    # provider 是服务商或实现名，例如 "openai" 或测试里的 "fake"。
     provider: str
     # model 是具体 embedding 模型名。
     model: str
@@ -58,112 +55,16 @@ class EmbeddingProvider(Protocol):
         """Return one embedding for each input text."""
 
 
-class DashScopeEmbeddingProvider:
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        api_key: str,
-        model: str,
-        dimension: int,
-        batch_size: int,
-        client: httpx.Client | None = None,
-        timeout: float = 60.0,
-    ) -> None:
-        if not base_url.strip():
-            raise ValueError("DashScope base_url must not be empty")
-        if not api_key.strip():
-            raise ValueError("DashScope api_key must not be empty")
-        if batch_size <= 0:
-            raise ValueError("DashScope batch_size must be positive")
-
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
-        self.model = model
-        self.batch_size = batch_size
-        self.timeout = timeout
-        self.identity = EmbeddingIdentity(
-            provider="dashscope",
-            model=model,
-            dimension=dimension,
-        )
-        self._client = client or httpx.Client()
-
-    @property
-    def endpoint(self) -> str:
-        return f"{self.base_url}{_DASHSCOPE_MULTIMODAL_PATH}"
-
-    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        if not texts:
-            return []
-
-        # DashScope multimodal embedding 使用 input.contents；不要套用 OpenAI /embeddings 的 payload。
-        payload = {
-            "model": self.model,
-            "input": {"contents": [{"text": text} for text in texts]},
-            "parameters": {"dimension": self.identity.dimension},
-        }
-        try:
-            response = self._client.post(
-                self.endpoint,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=self.timeout,
-            )
-        except httpx.HTTPError as exc:
-            logger.exception(
-                "embedding_provider_error provider=dashscope endpoint_path=%s model=%s",
-                _DASHSCOPE_MULTIMODAL_PATH,
-                self.model,
-            )
-            raise EmbeddingProviderError(
-                f"DashScope embedding request failed: {exc}"
-            ) from exc
-
-        if response.status_code >= 400:
-            code, message = _provider_error(response)
-            logger.error(
-                "embedding_provider_error provider=dashscope endpoint_path=%s "
-                "model=%s status_code=%s error_code=%s",
-                _DASHSCOPE_MULTIMODAL_PATH,
-                self.model,
-                response.status_code,
-                code,
-            )
-            raise EmbeddingProviderError(
-                f"DashScope embedding request failed with {response.status_code}: "
-                f"{code} {message}".strip()
-            )
-
-        embeddings = _parse_dashscope_embeddings(response)
-        if len(embeddings) != len(texts):
-            raise EmbeddingProviderError(
-                "DashScope embedding response count does not match input count"
-            )
-        for embedding in embeddings:
-            # 维度必须在 provider 边界先校验，避免错误向量写入 item_embeddings 后才暴露。
-            _validate_embedding_dimension(embedding, self.identity)
-        return embeddings
-
-    def embed_query(self, text: str) -> list[float]:
-        return self.embed_texts([text])[0]
-
-
 class OpenAICompatibleEmbeddingProvider:
     def __init__(
         self,
         *,
-        provider: str,
+        provider: str = "openai",
         base_url: str,
         api_key: str,
         model: str,
         dimension: int,
         batch_size: int,
-        document_task: str | None = None,
-        query_task: str | None = None,
         client: httpx.Client | None = None,
         timeout: float = 60.0,
     ) -> None:
@@ -183,14 +84,8 @@ class OpenAICompatibleEmbeddingProvider:
         self.model = model
         self.batch_size = batch_size
         self.timeout = timeout
-        self.document_task = _normalize_optional_task(document_task)
-        self.query_task = _normalize_optional_task(query_task)
         self.identity = EmbeddingIdentity(
-            provider=_provider_identity(
-                provider_name,
-                self.document_task,
-                self.query_task,
-            ),
+            provider=provider_name,
             model=model,
             dimension=dimension,
         )
@@ -203,17 +98,12 @@ class OpenAICompatibleEmbeddingProvider:
         return f"{self.base_url}{_OPENAI_EMBEDDINGS_PATH}"
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        return self._embed_texts(texts, task=self.document_task)
+        return self._embed_texts(texts)
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed_texts([text], task=self.query_task)[0]
+        return self._embed_texts([text])[0]
 
-    def _embed_texts(
-        self,
-        texts: Sequence[str],
-        *,
-        task: str | None,
-    ) -> list[list[float]]:
+    def _embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
 
@@ -223,12 +113,6 @@ class OpenAICompatibleEmbeddingProvider:
             "encoding_format": "float",
             "dimensions": self.identity.dimension,
         }
-        if task is not None:
-            # Jina 的 task/mode 用于区分待检索文档和查询文本；OpenAI 原生不设置该字段。
-            payload["task"] = task
-        if self.provider == "jina":
-            # Jina 对单条输入有 token 上限；真实 Java class item 可能很长，先让 provider 截断而不是整批失败。
-            payload["truncate"] = True
         try:
             response = self._client.post(
                 self.endpoint,
@@ -316,27 +200,6 @@ def _embedding_text(item: IndexedItem) -> str:
     return "\n".join([item.title, item.summary, item.content])
 
 
-def _parse_dashscope_embeddings(response: httpx.Response) -> list[list[float]]:
-    try:
-        raw = response.json()
-        raw_embeddings = raw["output"]["embeddings"]
-    except (KeyError, TypeError, ValueError) as exc:
-        raise EmbeddingProviderError(
-            "DashScope embedding response shape is invalid"
-        ) from exc
-
-    embeddings: list[list[float]] = []
-    for raw_embedding in raw_embeddings:
-        try:
-            embedding = raw_embedding["embedding"]
-        except (KeyError, TypeError) as exc:
-            raise EmbeddingProviderError(
-                "DashScope embedding response item is invalid"
-            ) from exc
-        embeddings.append([float(value) for value in embedding])
-    return embeddings
-
-
 def _parse_openai_compatible_embeddings(response: httpx.Response) -> list[list[float]]:
     try:
         raw = response.json()
@@ -357,26 +220,6 @@ def _parse_openai_compatible_embeddings(response: httpx.Response) -> list[list[f
             ) from exc
         embeddings_by_index[index] = [float(value) for value in embedding]
     return [embeddings_by_index[index] for index in sorted(embeddings_by_index)]
-
-
-def _normalize_optional_task(task: str | None) -> str | None:
-    if task is None:
-        return None
-    normalized = task.strip()
-    return normalized or None
-
-
-def _provider_identity(
-    provider: str,
-    document_task: str | None,
-    query_task: str | None,
-) -> str:
-    if document_task is None and query_task is None:
-        return provider
-    identity = f"{provider}:{document_task or 'default'}>{query_task or 'default'}"
-    if len(identity) > 64:
-        raise ValueError("embedding provider identity must not exceed 64 characters")
-    return identity
 
 
 def _provider_error(response: httpx.Response) -> tuple[str, str]:

@@ -527,6 +527,57 @@ def test_with_embedding_explicitly_writes_embeddings(tmp_path: Path) -> None:
     assert all(embedding == [1.0, 0.0, 0.0] for _item, embedding in code_embeddings)
 
 
+def test_with_embedding_accepts_cli_configuration(tmp_path: Path) -> None:
+    sample_root = _sample_project(tmp_path)
+    sqlite_db = sample_root / "index.sqlite"
+    provider = FakeEmbeddingProvider()
+    output = StringIO()
+    seen_database_urls: list[str] = []
+
+    def provider_factory(settings):
+        seen_database_urls.append(settings.database_url)
+        assert settings.embedding is not None
+        assert settings.embedding.provider == "openai"
+        assert settings.embedding.base_url == "https://embedding.example.test/v1"
+        assert settings.embedding.api_key == "secret"
+        assert settings.embedding.model == "mvp-index-cli"
+        assert settings.embedding.dimension == 3
+        assert settings.embedding.batch_size == 2
+        return provider
+
+    exit_code = run(
+        [
+            "--root",
+            str(sample_root),
+            "--repo",
+            "payment-app",
+            "--database-url",
+            f"sqlite:///{sqlite_db.as_posix()}",
+            "--with-embedding",
+            "--embedding-base-url",
+            "https://embedding.example.test/v1",
+            "--embedding-api-key",
+            "secret",
+            "--embedding-model",
+            "mvp-index-cli",
+            "--embedding-dimension",
+            "3",
+            "--embedding-batch-size",
+            "2",
+        ],
+        environ={},
+        stdout=output,
+        embedding_provider_factory=provider_factory,
+    )
+
+    summary = _summary(output)
+    assert exit_code == 0
+    assert summary["repo"] == "payment-app"
+    assert summary["database"].startswith("sqlite:///")
+    assert summary["embedding_written"] == 7
+    assert seen_database_urls == [f"sqlite:///{sqlite_db.as_posix()}"]
+
+
 def test_embedding_configuration_is_ignored_without_explicit_flag(tmp_path: Path) -> None:
     sample_root = _sample_project(tmp_path)
     sqlite_db = sample_root / "index.sqlite"

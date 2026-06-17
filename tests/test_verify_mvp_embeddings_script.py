@@ -27,14 +27,12 @@ def test_mvp_embedding_script_uses_runtime_provider_factory(
 ) -> None:
     module = _load_script_module()
     embedding_settings = EmbeddingProviderSettings(
-        provider="jina",
-        base_url="https://api.jina.ai/v1",
+        provider="openai",
+        base_url="https://api.openai.example/v1",
         api_key="test-key",
-        model="jina-embeddings-v4",
+        model="embedding-model",
         dimension=3,
         batch_size=10,
-        document_task="retrieval.passage",
-        query_task="retrieval.query",
     )
     settings = RuntimeSettings(
         database_url="sqlite:///:memory:",
@@ -42,8 +40,8 @@ def test_mvp_embedding_script_uses_runtime_provider_factory(
     )
     provider = SimpleNamespace(
         identity=EmbeddingIdentity(
-            provider="jina:retrieval.passage>retrieval.query",
-            model="jina-embeddings-v4",
+            provider="openai",
+            model="embedding-model",
             dimension=3,
         ),
         batch_size=10,
@@ -70,7 +68,7 @@ def test_mvp_embedding_script_uses_runtime_provider_factory(
         def list_with_embeddings(self, **_kwargs):
             return [
                 (SimpleNamespace(id="code:mvp-embedding"), [1.0, 0.0, 0.0]),
-                (SimpleNamespace(id="code:existing-without-jina"), None),
+                (SimpleNamespace(id="code:existing-without-current-provider"), None),
             ]
 
     class FakeSearchService:
@@ -104,7 +102,7 @@ def test_mvp_embedding_script_uses_runtime_provider_factory(
 
     assert seen_settings == [embedding_settings]
     output = capsys.readouterr().out
-    assert "provider=jina:retrieval.passage>retrieval.query" in output
+    assert "provider=openai" in output
 
 
 def test_filter_rows_by_ids_ignores_existing_items_without_current_embedding() -> None:
@@ -112,7 +110,7 @@ def test_filter_rows_by_ids_ignores_existing_items_without_current_embedding() -
 
     rows = [
         (SimpleNamespace(id="code:mvp-embedding"), [1.0, 0.0, 0.0]),
-        (SimpleNamespace(id="code:existing-without-jina"), None),
+        (SimpleNamespace(id="code:existing-without-current-provider"), None),
     ]
 
     assert module._filter_rows_by_ids(rows, {"code:mvp-embedding"}) == [rows[0]]
