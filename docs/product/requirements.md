@@ -36,7 +36,7 @@ agent-context-platform 面向 AI Coding Agent，目标是在方案设计、代�
 - MCP Web Playground：开发调试入口。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
-- Embedding provider：OpenAI-compatible `/v1/embeddings`。
+- Embedding provider：OpenAI-compatible `/v1/embeddings` 和 message-style `/infer`。
 - Remote MCP HTTP：`ACP_MCP_TRANSPORT=streamable-http`。
 - MCP JSONL 调试日志：默认关闭，可显式输出摘要或完整 payload。
 

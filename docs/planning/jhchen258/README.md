@@ -5,7 +5,7 @@
 - 初始化 Python 依赖。
 - 配置 PostgreSQL / pgvector 数据库。
 - 索引真实工程目录。
-- 写入 OpenAI-compatible embedding。
+- 写入 embedding。
 - 启动 Context API 并验证查询结果。
 
 本文不提交真实 API key、数据库密码或内部网关地址。真实值只写入本机 `.env` 或当前 shell 环境变量。
@@ -17,7 +17,7 @@ Windows 11 本地建议准备：
 - `uv`
 - PostgreSQL
 - `pgvector` extension
-- 可访问的 OpenAI-compatible embedding 服务
+- 可访问的 embedding 服务
 - 待索引工程目录，例如：
 
 ```text
@@ -63,10 +63,10 @@ ACP_SQL_ECHO=false
 
 ACP_CONTEXT_API_BASE_URL=http://127.0.0.1:8000
 
-ACP_EMBEDDING_PROVIDER=openai
-ACP_EMBEDDING_BASE_URL=<openai-compatible-embedding-gateway>/v1
+ACP_EMBEDDING_PROVIDER=infer
+ACP_EMBEDDING_BASE_URL=<embedding-gateway>/infer
 ACP_EMBEDDING_API_KEY=<local-api-key>
-ACP_EMBEDDING_MODEL=Qwen3-Embedding-4B
+ACP_EMBEDDING_MODEL=bge-m3
 ACP_EMBEDDING_DIMENSION=1024
 ACP_EMBEDDING_BATCH_SIZE=10
 
@@ -144,6 +144,7 @@ uv run acp-index `
   --repo "tmc-settlement" `
   --database-url "$env:ACP_DATABASE_URL" `
   --with-embedding `
+  --embedding-provider "$env:ACP_EMBEDDING_PROVIDER" `
   --embedding-base-url "$env:ACP_EMBEDDING_BASE_URL" `
   --embedding-api-key "$env:ACP_EMBEDDING_API_KEY" `
   --embedding-model "$env:ACP_EMBEDDING_MODEL" `
@@ -246,4 +247,3 @@ http://127.0.0.1:8000/docs
 - 请求里的 `filters.repo` 或 `constraints.repo` 是否等于 `tmc-settlement`。
 - 索引命令是否使用了 `--repo "tmc-settlement"`。
 - 数据库连接是否和 Context API 使用的是同一个 `ACP_DATABASE_URL`。
-

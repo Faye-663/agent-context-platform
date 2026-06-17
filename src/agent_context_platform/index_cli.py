@@ -282,9 +282,15 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Generate and write item embeddings using embedding CLI flags or ACP_EMBEDDING_* settings.",
     )
     parser.add_argument(
+        "--embedding-provider",
+        default=None,
+        choices=("openai", "infer"),
+        help="Embedding provider protocol. Overrides ACP_EMBEDDING_PROVIDER.",
+    )
+    parser.add_argument(
         "--embedding-base-url",
         default=None,
-        help="OpenAI-compatible embedding API base URL. Overrides ACP_EMBEDDING_BASE_URL.",
+        help="Embedding API base URL. For provider=infer this must be the exact /infer endpoint.",
     )
     parser.add_argument(
         "--embedding-api-key",
@@ -331,6 +337,7 @@ def _apply_cli_config_overrides(
 ) -> dict[str, str]:
     overrides = {
         "ACP_DATABASE_URL": args.database_url,
+        "ACP_EMBEDDING_PROVIDER": args.embedding_provider,
         "ACP_EMBEDDING_BASE_URL": args.embedding_base_url,
         "ACP_EMBEDDING_API_KEY": args.embedding_api_key,
         "ACP_EMBEDDING_MODEL": args.embedding_model,
@@ -350,7 +357,7 @@ def _apply_cli_config_overrides(
             args.embedding_batch_size,
         )
     ):
-        values["ACP_EMBEDDING_PROVIDER"] = "openai"
+        values.setdefault("ACP_EMBEDDING_PROVIDER", "openai")
     return values
 
 
