@@ -41,8 +41,7 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 | [当前架构设计](docs/architecture/design.md) | 当前 master 代码对应的架构、入口、配置和边界 |
 | [Context API 契约](docs/api/context-api.md) | HTTP API、MCP 参数透传、模型和错误 envelope |
 | [正式测评待办](docs/evaluation/evaluation-todo.md) | 正式测评体系待确认事项 |
-| [Phase 1 当前状态汇总](docs/planning/phase1-current-status.md) | 三人协作后的当前完成度、待完善项和下一步 |
-| [2026-06-17 Phase 1 状态材料](docs/reports/2026-06-17-phase1-review/README.md) | 阶段成果、验证流程、三人交付对照和后续计划 |
+| [Phase 1 当前状态与验收缺口](docs/planning/phase1-current-status.md) | 当前实现、验收判断、验证证据和必须关闭的缺口 |
 | [ADR-001](docs/decisions/ADR-001-agent-context-first-mvp-scope.md) | Agent Context First MVP 范围决策 |
 | [ADR-002](docs/decisions/ADR-002-hybrid-search-with-postgresql-pgvector.md) | Hybrid Search 与 PostgreSQL / pgvector 决策 |
 | [ADR-003](docs/decisions/ADR-003-python-fastapi-mvp-application-stack.md) | Python FastAPI 应用栈决策 |
