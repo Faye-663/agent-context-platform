@@ -1,71 +1,49 @@
-# Phase 1 当前状态汇总
+# Phase 1 当前状态与验收缺口
 
-## 结论
+## 验收结论
 
-截至 2026-06-16，Phase 1 的核心工程链路已经基本合入 `master`。
+截至 2026-06-23，Phase 1 的基础实现已合入 `master`，但原始需求尚未 100% 完成，不能标记为“Phase 1 已验收完成”。
 
-当前项目已经具备：
+`P1-T5`（多仓共库隔离）和 `P1-T6`（手动增量索引与一致性清理）已具备实现和自动化测试证据。其余任务多数已具备基础实现，但仍有原始成功标准、公开调试链路或真实项目验证缺口。
 
-- 可重复运行的 evaluation harness 和 golden task 文件。
-- 优化后的 Context API / MCP tool contract，支持 `debug_options` 和 `_trace`。
-- 轻量 MCP Web Playground。
-- repo 级索引隔离、provenance、手动增量索引和 symbol catalog。
-- 中文词级 lexical retrieval、alias expansion、lexical / vector / symbol 多路召回和 RRF 融合。
-- Context Composer，支持 token budget、missing context、待确认项和 citation 汇总。
+这里的未完成项属于已确认的 Phase 1 原始范围，不应以“后续扩大功能范围”处理。
 
-当前不建议继续扩大 Phase 1 功能范围。下一步应进入集成验证和效果调优。
+## 当前验证证据
 
-## 三人分工完成度
+- 2026-06-23 本地执行 `uv run pytest`：`132 passed, 2 skipped`。
+- 两个 skipped 均来自 `tests/test_eval_regression.py`：未启动真实 Context API，因而没有连接真实索引库。
+- `uv run acp-eval --tasks eval/golden-tasks.json --validate-only` 通过：当前任务集有 4 组、12 条样例。
+- 尚无真实项目索引上的 live evaluation、baseline 对比结果或可复现失败案例报告；因此无法证明中文自然语言与代码符号混合检索优于早期 LIKE 基线。
 
-| 开发者 | 职责 | 已合入能力 | 当前完成度 | 剩余事项 |
-|---|---|---|---:|---|
-| A | Evaluation、MCP contract、Playground | `acp-eval`、`eval/golden-tasks.json`、`debug_options`、简化 `_trace`、`playground/` | 约 85% | 用真实 Context API 跑 live regression；Playground 端到端验证；接入更详细 retrieval trace |
-| B | 索引、数据模型、一致性 | provenance、repo-scoped identity、manual incremental indexing、symbol catalog writer / storage / read API | 约 85%-90% | 明确 `source_item_id` 为空的 symbol 是否参与 recall；补齐 code graph 调研结论 |
-| C | 检索、召回、上下文组装 | `lexical.py`、`aliases.py`、`retrieval_trace.py`、RRF、symbol recall、`context_composer.py`、中文分词增强 | 约 85% | 将内部 `RetrievalTrace` 暴露给 API / Playground；基于评测调 BM25 / RRF / alias / sufficiency |
+## 原始任务完成度
 
-## 已合入 PR 对照
+| 任务 | 当前判断 | 已有能力 | 未完成或不符项 |
+|---|---|---|---|
+| P1-T1 Evaluation Harness | 部分完成 | 固定任务格式、指标、`acp-eval` 和回归入口 | 无真实项目 baseline、对比产物和 live 评测证据 |
+| P1-T2 MCP Tool Contract | 部分完成 | 四个 core tools、`debug_options`、错误 envelope | `_trace` 不完整；空检索没有约定的可区分状态 |
+| P1-T3 MCP Web Playground | 部分完成 | HTTP 调用、工具列表、参数表单、可读化结果 | 不展示完整 MCP wire request/response；尚无端到端验证；存在未修复的 DOM XSS 风险 |
+| P1-T4 Provenance / Freshness | 部分完成 | repo、Git best-effort、file hash、索引时间和批次写入 citation | 无当前工作区或指定版本的 stale 判断，也没有 freshness risk code |
+| P1-T5 多仓共库隔离 | 已实现 | repo-scoped item / embedding identity 和 repo filter | 未发现原始范围内的直接缺口 |
+| P1-T6 Incremental Indexing | 已实现 | `--path`、dry-run、file hash、范围清理和失败文件保留 | 未发现原始范围内的直接缺口 |
+| P1-T7 Lexical / BM25 | 部分完成 | 中文分词、工程 token 和 BM25-like 字段加权 | token、字段命中和 lexical 细节未进入 API / Playground trace |
+| P1-T8 Alias Mapping | 部分完成 | JSON alias 配置和 query expansion | alias expansion 仅在内部 trace；评测集未覆盖 alias 错误或缺失 |
+| P1-T9 Symbol Index | 部分完成 | catalog、索引、清理、exact / prefix lookup 和 symbol recall | `source_item_id is None` 的 catalog symbol 会被 recall 跳过，覆盖边界未决 |
+| P1-T10 Multi-Recall / RRF / Trace | 部分完成 | lexical / vector / symbol、RRF 和内部 `RetrievalTrace` | API `_trace` 缺少 query token、alias、channel rank 和完整融合解释 |
+| P1-T11 Context Composer | 未达标 | token budget、citation 汇总和基础风险提示 | 未区分 primary / related / background evidence；不去重相同 source、重叠片段或跨分组重复候选 |
+| P1-T12 Sufficiency / Confidence | 未达标 | 空资产类型、低分和缺 provenance 的基础提示 | `missing_context` 仍主要按资产类型为空判断；无 stale、跨仓不可见、结果冲突等信号 |
+| P1-T13 Code Graph Research | 未完成 | 已记录候选参考 | 未形成正式选型、兼容性和验证结论 |
 
-| PR | 内容 | 对应职责 |
-|---|---|---|
-| #17 | 索引来源 provenance | B |
-| #18 | multi code repo 共库隔离 | B |
-| #19 | `acp-index --path` 手动增量索引 | B |
-| #21 | symbol catalog storage | B |
-| #22 | P1 retrieval context composition | C |
-| #23 | P1 开发者 B 任务状态同步 | B |
-| #24 | 中文 lexical segmentation 增强 | C |
-| #25 | evaluation harness、MCP contract、Web Playground | A |
+## 阶段验收前必须关闭的事项
 
-## 当前验证
+1. 在真实项目数据上建立可重复 baseline，并记录 `acp-eval` 的 top-k hit rate、MRR 和失败案例。
+2. 将内部 `RetrievalTrace` 无损序列化到 debug response，并在 Playground 展示 token、alias、channel rank 和 RRF 信息。
+3. 修复 Context Composer 的跨分组重复候选问题，定义证据层级，并补充相应自动化测试。
+4. 定义并实现 stale、跨仓可见性和结果冲突的 sufficiency / freshness 判断；再决定结构化 confidence 与 risk code 的公开契约。
+5. 修复 Playground 对 MCP response 和索引内容使用 `innerHTML` 的 DOM XSS 风险，并完成真实 MCP Server 端到端验证。
+6. 完成 P1-T13 的 code graph 候选调研结论，明确直接集成、仅作参考或不采用。
 
-本地全量测试结果：
+## 文档职责
 
-```text
-uv run pytest
-130 passed, 2 skipped
-```
-
-2 个 skipped 来自 `tests/test_eval_regression.py`，原因是本地没有运行 Context API：
-
-```text
-Context API not available at http://127.0.0.1:8000
-```
-
-这说明单元测试通过，但 live regression 还需要启动真实 API 和准备真实索引库。
-
-## 当前不足与待完善项
-
-| 待完善项 | 当前影响 | 后续处理 |
-|---|---|---|
-| `_trace` 仍是 API 层简化汇总 | Playground 只能看到 channel score 摘要，看不到 token、alias、per-channel rank | C 暴露内部 `RetrievalTrace`，A 接入展示 |
-| golden tasks 还偏样例化 | 评测指标不能充分代表真实项目效果 | 补 10-20 条真实工程任务，覆盖代码、表、文档、聚合任务 |
-| alias 词表仍是 JSON 文件 | 适合 MVP / 早期验证，但缺少 repo / domain 作用域 | 先用 JSON 跑真实任务，再决定是否入库 |
-| symbol catalog 粒度大于可展示 IndexedItem 粒度 | 部分 symbol 无法被 retrieval 映射为结果 | 明确 graph-only symbol 和 recall symbol 的边界 |
-| Playground 尚未做生产化 UI | 适合开发调试，不适合作为正式产品界面 | 当前定位为调试入口，不包装成管理后台 |
-
-## 推荐下一步
-
-1. 启动 Context API，导入一套真实样例索引，运行 `acp-eval --tasks eval/golden-tasks.json`。
-2. 把 C 的内部 trace 接到 API `_trace`，让 Playground 能展示 token、alias、channel rank、RRF。
-3. 用真实任务调 BM25 字段权重、RRF 参数、alias 词表和 sufficiency 规则。
-4. 明确 P2 是否优先做 code graph、rerank，还是先做多仓关系 / 反馈闭环。
+- [后续待办与阶段规划](post-mvp-todo.md) 保留 Phase 1 原始任务边界和 Phase 2 待办。
+- 本文是当前实现与验收缺口的唯一状态入口。
+- README、架构设计和 Context API 文档只描述当前已实现的运行行为与公开契约，不将未完成项表述为既定能力。
