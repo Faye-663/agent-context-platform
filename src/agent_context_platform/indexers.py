@@ -34,26 +34,27 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
     # 这里是 Java 离线索引的最小边界：调用方负责读取文件，本函数只把单个文件解析成可检索资产。
     tree = _JAVA_PARSER.parse(content.encode("utf-8"))
     items: list[IndexedItem] = []
-    for class_node in _walk_nodes(tree.root_node, {"class_declaration"}):
+    for class_node in _walk_nodes(tree.root_node, set(_JAVA_TYPE_NODE_KINDS)):
         class_name_node = class_node.child_by_field_name("name")
         if class_name_node is None:
             continue
 
         class_name = _node_text(class_name_node)
+        type_kind = _JAVA_TYPE_NODE_KINDS[class_node.type]
         class_source = _source_lines(content, class_node)
         class_annotations = _annotation_names(class_node)
         class_signature = _signature_text(class_node)
-        # class 自身作为一个 IndexedItem，后续可按 symbol_type=class 做结构化过滤。
+        # 每个 catalog type 都有对应可展示 item，避免 symbol recall 指向空来源。
         items.append(
             _indexed_item(
                 item_id=f"code:{path}:{class_name}",
                 asset_type=AssetType.CODE,
                 title=class_name,
                 content=class_source.text,
-                summary=f"Java 类 {class_name}。",
+                summary=f"Java {type_kind} {class_name}。",
                 metadata={
                     "language": "java",
-                    "symbol_type": "class",
+                    "symbol_type": type_kind,
                     "annotations": class_annotations,
                     "signature": class_signature,
                 },
@@ -71,7 +72,7 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
         class_body = class_node.child_by_field_name("body")
         if class_body is None:
             continue
-        # method 作为独立资产入库，避免检索结果只能定位到整类而不能定位到具体实现片段。
+        # member 也和 catalog 同粒度入库，保证每个 declaration 可展示和可引用。
         for method_node in _walk_nodes(class_body, {"method_declaration"}):
             method_name_node = method_node.child_by_field_name("name")
             if method_name_node is None:
@@ -102,6 +103,41 @@ def index_java_source(path: str, content: str, repo: str | None = None) -> list[
                     ),
                 )
             )
+
+        for member_node in class_body.named_children:
+            if member_node.type in {"constructor_declaration", "compact_constructor_declaration"}:
+                parameter_types = _parameter_types(member_node)
+                symbol = f"{class_name}.<init>({', '.join(parameter_types)})"
+                constructor_source = _source_lines(content, member_node)
+                items.append(
+                    _indexed_item(
+                        item_id=f"code:{path}:{symbol}",
+                        asset_type=AssetType.CODE,
+                        title=symbol,
+                        content=constructor_source.text,
+                        summary=f"Java 构造器 {symbol}。",
+                        metadata={"language": "java", "symbol_type": "constructor", "annotations": _annotation_names(member_node), "signature": _signature_text(member_node)},
+                        source=SourceCitation(source_type=SourceType.CODE, repo=repo, path=path, start_line=constructor_source.start_line, end_line=constructor_source.end_line, symbol=symbol),
+                    )
+                )
+            elif member_node.type == "field_declaration":
+                field_source = _source_lines(content, member_node)
+                for variable_node in _walk_nodes(member_node, {"variable_declarator"}):
+                    field_name_node = variable_node.child_by_field_name("name")
+                    if field_name_node is None:
+                        continue
+                    symbol = f"{class_name}.{_node_text(field_name_node)}"
+                    items.append(
+                        _indexed_item(
+                            item_id=f"code:{path}:{symbol}",
+                            asset_type=AssetType.CODE,
+                            title=symbol,
+                            content=field_source.text,
+                            summary=f"Java 字段 {symbol}。",
+                            metadata={"language": "java", "symbol_type": "field", "annotations": _annotation_names(member_node), "signature": _signature_text(member_node)},
+                            source=SourceCitation(source_type=SourceType.CODE, repo=repo, path=path, start_line=field_source.start_line, end_line=field_source.end_line, symbol=symbol),
+                        )
+                    )
     return items
 
 
@@ -189,7 +225,7 @@ def index_java_symbols(
                         name=constructor_name,
                         qualified_name=qualified_name,
                         source=constructor_source,
-                        source_item_id=type_item_id,
+                        source_item_id=item_ids.get(f"{type_name}.<init>({', '.join(parameter_types)})"),
                     )
                 )
             elif member_node.type == "field_declaration":
@@ -208,7 +244,7 @@ def index_java_symbols(
                             name=field_name,
                             qualified_name=f"{qualified_type_name}.{field_name}",
                             source=field_source,
-                            source_item_id=type_item_id,
+                            source_item_id=item_ids.get(f"{type_name}.{field_name}"),
                         )
                     )
 

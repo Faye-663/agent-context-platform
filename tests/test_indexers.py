@@ -147,6 +147,19 @@ def test_java_symbol_catalog_extracts_graph_foundation_declarations() -> None:
     assert all(symbol.symbol_id.startswith("java:") for symbol in symbols)
 
 
+def test_java_indexer_creates_display_items_for_every_catalog_symbol() -> None:
+    path = "src/main/java/example/PaymentService.java"
+    items = index_java_source(path=path, content=JAVA_SYMBOL_SAMPLE, repo="example/repo")
+    symbols = index_java_symbols(
+        path=path,
+        content=JAVA_SYMBOL_SAMPLE,
+        repo="example/repo",
+        indexed_items=items,
+    )
+
+    assert all(symbol.source_item_id is not None for symbol in symbols)
+
+
 def test_sql_indexer_extracts_table_columns_indexes_and_source() -> None:
     items = index_sql_ddl(path="schema/payment.sql", content=SQL_SAMPLE)
 
