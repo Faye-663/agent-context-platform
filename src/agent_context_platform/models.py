@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -184,6 +184,15 @@ class SearchResult(BaseModel):
         return self
 
 
+class ContextRisk(BaseModel):
+    """上下文风险的稳定机器可读标识和人类可读说明。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
 class TaskContext(BaseModel):
     """给 Agent 的任务上下文包。
 
@@ -195,6 +204,8 @@ class TaskContext(BaseModel):
 
     # query 保留原始任务描述，例如 "修改支付报文生成逻辑"。
     query: str = Field(min_length=1)
+    # result_status 让调用方区分成功返回的空上下文与请求失败。
+    result_status: Literal["ok", "empty"] = "ok"
     # related_code 是直接相关的代码类/方法。
     related_code: list[SearchResult] = Field(default_factory=list)
     # related_db_schema 是相关表、字段和索引。
@@ -203,8 +214,8 @@ class TaskContext(BaseModel):
     related_docs: list[SearchResult] = Field(default_factory=list)
     # similar_implementations 用于给 Agent 提供可参考的已有实现。
     similar_implementations: list[SearchResult] = Field(default_factory=list)
-    # risks 记录上下文不足或召回缺口，调用方不应忽略。
-    risks: list[str] = Field(default_factory=list)
+    # risks 记录上下文不足或召回缺口，调用方可用 code 进行稳定分支处理。
+    risks: list[ContextRisk] = Field(default_factory=list)
     # missing_context 标记缺失的资产类型，例如 ["db_schema"]。
     missing_context: list[str] = Field(default_factory=list)
     # citations 汇总所有返回结果的来源，便于统一展示和审计。

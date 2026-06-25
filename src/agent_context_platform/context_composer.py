@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_context_platform.models import SearchResult, SourceCitation, TaskContext
+from agent_context_platform.models import ContextRisk, SearchResult, SourceCitation, TaskContext
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ class ContextComposer:
         query: str,
         groups: ContextGroups,
         token_budget: int | None = None,
+        version_mismatch: bool = False,
     ) -> TaskContext:
         related_code = list(groups.related_code)
         related_db_schema = list(groups.related_db_schema)
@@ -43,12 +44,14 @@ class ContextComposer:
             related_db_schema=related_db_schema,
             related_docs=related_docs,
             missing_context=missing_context,
+            version_mismatch=version_mismatch,
         )
         citations = _unique_citations(
             related_code + related_db_schema + related_docs + similar_implementations
         )
         return TaskContext(
             query=query,
+            result_status="ok" if citations else "empty",
             related_code=related_code,
             related_db_schema=related_db_schema,
             related_docs=related_docs,
@@ -131,16 +134,22 @@ def _risks(
     related_db_schema: list[SearchResult],
     related_docs: list[SearchResult],
     missing_context: list[str],
-) -> list[str]:
+    version_mismatch: bool,
+) -> list[ContextRisk]:
     risks = [
-        f"未召回到 {asset_type} 上下文，需要人工确认。"
+        ContextRisk(
+            code="MISSING_CONTEXT",
+            message=f"未召回到 {asset_type} 上下文，需要人工确认。",
+        )
         for asset_type in missing_context
     ]
     all_results = related_code + related_db_schema + related_docs
     if all_results and max(result.score for result in all_results) < 0.01:
-        risks.append("召回结果整体置信度较低，建议扩大检索或补充关键词。")
+        risks.append(ContextRisk(code="LOW_CONFIDENCE", message="召回结果整体置信度较低，建议扩大检索或补充关键词。"))
     if _has_missing_provenance(all_results):
-        risks.append("部分上下文缺少 file_hash 或 indexed_at，无法完整判断索引新鲜度。")
+        risks.append(ContextRisk(code="INCOMPLETE_PROVENANCE", message="部分上下文缺少 file_hash 或 indexed_at，无法完整判断索引新鲜度。"))
+    if version_mismatch:
+        risks.append(ContextRisk(code="STALE_INDEX", message="存在不匹配指定 commit 的候选，已严格排除。"))
     return risks
 
 

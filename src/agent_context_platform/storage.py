@@ -366,6 +366,7 @@ class IndexedItemRepository:
         path_prefix: str | None = None,
         language: str | None = None,
         kinds: Sequence[str] | None = None,
+        expected_commit_sha: str | None = None,
     ) -> list[SymbolCatalogEntry]:
         statement = _apply_symbol_filters(
             select(SymbolRecord),
@@ -373,6 +374,7 @@ class IndexedItemRepository:
             language=language,
             kinds=kinds,
             path_prefix=path_prefix,
+            expected_commit_sha=expected_commit_sha,
         )
         if path is not None:
             statement = statement.where(SymbolRecord.path == path)
@@ -399,6 +401,7 @@ class IndexedItemRepository:
             language=language,
             kinds=kinds,
             path_prefix=path_prefix,
+            expected_commit_sha=None,
         ).where(
             or_(
                 SymbolRecord.name == query,
@@ -431,6 +434,7 @@ class IndexedItemRepository:
             language=language,
             kinds=kinds,
             path_prefix=path_prefix,
+            expected_commit_sha=None,
         ).where(
             or_(
                 SymbolRecord.name.startswith(query),
@@ -493,6 +497,7 @@ class IndexedItemRepository:
         language: str | None = None,
         symbol_types: Sequence[str] | None = None,
         table: str | None = None,
+        expected_commit_sha: str | None = None,
         embedding_identity: EmbeddingIdentity | None = None,
     ) -> list[tuple[IndexedItem, list[float] | None]]:
         # 检索层需要同时拿到模型对象和对应模型的 embedding，避免跨模型维度误比较。
@@ -509,6 +514,8 @@ class IndexedItemRepository:
             statement = statement.where(IndexedItemRecord.symbol_type.in_(symbol_types))
         if table is not None:
             statement = statement.where(IndexedItemRecord.table_name == table)
+        if expected_commit_sha is not None:
+            statement = statement.where(IndexedItemRecord.commit_sha == expected_commit_sha)
 
         records = self.session.scalars(statement.order_by(IndexedItemRecord.id)).all()
         return [
@@ -552,6 +559,7 @@ class IndexedItemRepository:
         language: str | None = None,
         symbol_types: Sequence[str] | None = None,
         table: str | None = None,
+        expected_commit_sha: str | None = None,
         keywords: Sequence[str] = (),
         limit: int = 10,
     ) -> list[IndexedItem]:
@@ -567,6 +575,7 @@ class IndexedItemRepository:
             language=language,
             symbol_types=symbol_types,
             table=table,
+            expected_commit_sha=expected_commit_sha,
         )
         keyword_conditions = []
         keyword_match_counts = []
@@ -601,6 +610,7 @@ class IndexedItemRepository:
         language: str | None = None,
         symbol_types: Sequence[str] | None = None,
         table: str | None = None,
+        expected_commit_sha: str | None = None,
         query_embedding: Sequence[float],
         embedding_identity: EmbeddingIdentity | None = None,
         limit: int = 10,
@@ -619,6 +629,7 @@ class IndexedItemRepository:
                 language=language,
                 symbol_types=symbol_types,
                 table=table,
+                expected_commit_sha=expected_commit_sha,
                 query_embedding=query_embedding,
                 embedding_identity=embedding_identity,
                 limit=limit,
@@ -637,6 +648,7 @@ class IndexedItemRepository:
             language=language,
             symbol_types=symbol_types,
             table=table,
+            expected_commit_sha=expected_commit_sha,
             embedding_identity=embedding_identity,
         )
         scored = [
@@ -676,6 +688,7 @@ def build_pgvector_search_statement(
     language: str | None = None,
     symbol_types: Sequence[str] | None = None,
     table: str | None = None,
+    expected_commit_sha: str | None = None,
     query_embedding: Sequence[float],
     embedding_identity: EmbeddingIdentity | None = None,
     limit: int = 10,
@@ -699,6 +712,7 @@ def build_pgvector_search_statement(
         language=language,
         symbol_types=symbol_types,
         table=table,
+        expected_commit_sha=expected_commit_sha,
     )
     if embedding_identity is not None:
         statement = statement.where(
@@ -718,6 +732,7 @@ def _apply_item_filters(
     language: str | None,
     symbol_types: Sequence[str] | None,
     table: str | None,
+    expected_commit_sha: str | None,
 ):
     if repo is not None:
         statement = statement.where(IndexedItemRecord.repo == repo)
@@ -731,6 +746,8 @@ def _apply_item_filters(
         statement = statement.where(IndexedItemRecord.symbol_type.in_(symbol_types))
     if table is not None:
         statement = statement.where(IndexedItemRecord.table_name == table)
+    if expected_commit_sha is not None:
+        statement = statement.where(IndexedItemRecord.commit_sha == expected_commit_sha)
     return statement
 
 
@@ -741,6 +758,7 @@ def _apply_symbol_filters(
     language: str | None,
     kinds: Sequence[str] | None,
     path_prefix: str | None,
+    expected_commit_sha: str | None,
 ):
     statement = statement.where(SymbolRecord.repo == repo)
     if language is not None:
@@ -749,6 +767,8 @@ def _apply_symbol_filters(
         statement = statement.where(SymbolRecord.kind.in_(kinds))
     if path_prefix is not None:
         statement = statement.where(SymbolRecord.path.startswith(path_prefix))
+    if expected_commit_sha is not None:
+        statement = statement.where(SymbolRecord.commit_sha == expected_commit_sha)
     return statement
 
 

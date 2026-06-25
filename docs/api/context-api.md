@@ -153,6 +153,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 | `filters.path_prefix` | 可选，限制仓库子目录 |
 | `filters.table` | 可选，用于 DB schema 搜索 |
 | `filters.repo` | 可选，限制 GitLab code repo；未传时可由 `ACP_DEFAULT_REPO` 注入 |
+| `filters.expected_commit_sha` | 可选，严格限定来源 commit；不匹配 evidence 不会返回 |
 | `debug_options` | 可选调试参数分组，包含 `query_embedding` 和 `include_trace` |
 | `debug_options.query_embedding` | 可选，用于显式传入 query embedding（高级调试用） |
 | `debug_options.include_trace` | 可选，默认 `false`，设为 `true` 时 response 增加 `_trace` 字段（调试用途，结构可能变化） |
@@ -282,6 +283,8 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 - 当 `debug_options.include_trace=true` 时，search 响应会增加 `_trace` 字段，包含 query token、alias expansion、每个召回通道的候选条目（item id、rank、raw score、reason）以及 RRF 融合后的 channel rank、score 和 reasons；`build-task-context` 则按 `related_code`、`related_db_schema`、`related_docs`、`similar_implementations` 分组放入 `_trace.queries`。`_trace` 为调试用途，结构可能随版本变化，暂不作为长期公开承诺。
 
 ## 错误处理
+
+成功响应始终包含 `result_status`：`ok` 表示至少有一条结果，`empty` 表示请求有效但没有可返回的 evidence。`risks` 是结构化数组，每项包含稳定的 `code` 和面向人的 `message`；调用方必须从旧的 `string[]` 读取方式迁移。当前风险码包括 `STALE_INDEX`、`CROSS_REPO_RESULTS`、`MISSING_CONTEXT`、`LOW_CONFIDENCE` 和 `INCOMPLETE_PROVENANCE`。
 
 错误响应使用统一 envelope：
 
