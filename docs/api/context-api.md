@@ -262,12 +262,16 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 ```json
 {
   "query": "新增某地区支付接口，复用已有支付报文生成能力",
+  "result_status": "empty",
   "related_code": [],
   "related_db_schema": [],
   "related_docs": [],
   "similar_implementations": [],
   "risks": [
-    "未召回到明确的错误码映射文档，需要人工确认。"
+    {
+      "code": "MISSING_CONTEXT",
+      "message": "未召回到 db_schema 上下文，需要人工确认。"
+    }
   ],
   "missing_context": [
     "db_schema"

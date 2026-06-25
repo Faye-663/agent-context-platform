@@ -354,63 +354,6 @@ def _should_include_trace(debug_options: DebugOptions | None) -> bool:
     return debug_options is not None and debug_options.include_trace
 
 
-def _build_trace_from_results(
-    results: list[SearchResult],
-    query: str = "",
-) -> dict[str, Any]:
-    """从 SearchResult 列表中提取 trace 信息。
-
-    当前从 score_parts 和各 channel 分数中汇总，提供各通道的候选数和
-    最高分概览。详细 trace（tokenization、alias、per-item channel ranks）
-    需要 retrieval.py 暴露内部 RetrievalTrace 后才能补充。
-    """
-    channel_info: dict[str, dict[str, Any]] = {}
-    seen_keys: set[tuple[str | None, str]] = set()
-
-    for result in results:
-        key = (result.source.repo, result.item.id)
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-
-        score_parts = result.score_parts or {}
-        for channel, score in score_parts.items():
-            if channel not in channel_info:
-                channel_info[channel] = {
-                    "candidates": 0,
-                    "top_score": 0.0,
-                }
-            channel_info[channel]["candidates"] += 1
-            channel_info[channel]["top_score"] = max(
-                channel_info[channel]["top_score"], score
-            )
-
-    fused = []
-    for result in results:
-        score_parts = result.score_parts or {}
-        # channel_scores: 各通道对当前 item 的原始评分
-        channel_scores = {
-            ch: score for ch, score in score_parts.items() if score
-        }
-        # channel_ranks 需要 per-channel 完整排序，当前从 SearchResult
-        # 无法获取；TODO: 等 retrieval.py 暴露 RetrievalTrace 后补充
-        channel_ranks: dict[str, int] = {}
-        fused.append({
-            "item_id": result.item.id,
-            "rrf_score": result.score,
-            "channel_ranks": channel_ranks,
-            "channel_scores": channel_scores,
-        })
-
-    return {
-        "query": query,
-        "query_tokens": [],
-        "alias_expansions": [],
-        "channels": channel_info,
-        "fused": fused,
-    }
-
-
 def _serialize_retrieval_trace(trace: RetrievalTrace | None) -> dict[str, Any]:
     """将检索层 trace 原样转换为仅供 debug 使用的 JSON 结构。"""
     if trace is None:
