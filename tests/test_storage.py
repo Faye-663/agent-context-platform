@@ -286,6 +286,57 @@ def test_repository_rejects_persisted_items_without_repo() -> None:
             raise AssertionError("expected missing repo to be rejected")
 
 
+def test_keyword_candidates_prioritize_more_matching_terms_before_limit() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    repo = "github.com/example/campus"
+    broad_match = make_item(
+        "code:adapter",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo=repo,
+            path="src/Adapter.java",
+            start_line=1,
+            end_line=5,
+            symbol="Adapter",
+        ),
+        {"language": "java", "symbol_type": "class"},
+    )
+    exact_match = make_item(
+        "code:config",
+        SourceCitation(
+            source_type=SourceType.CODE,
+            repo=repo,
+            path="src/AiConfig.java",
+            start_line=1,
+            end_line=5,
+            symbol="AiConfig",
+        ),
+        {"language": "java", "symbol_type": "class"},
+    )
+    broad_match = broad_match.model_copy(
+        update={"content": "ai adapter", "summary": "ai adapter"}
+    )
+    exact_match = exact_match.model_copy(
+        update={"content": "ai config", "summary": "ai config"}
+    )
+
+    with Session(engine) as session:
+        repository = IndexedItemRepository(session)
+        repository.save(broad_match)
+        repository.save(exact_match)
+        session.commit()
+
+        candidates = repository.list_keyword_candidates(
+            repo=repo,
+            asset_type=AssetType.CODE,
+            keywords=["ai", "config"],
+            limit=1,
+        )
+
+    assert [item.id for item in candidates] == ["code:config"]
+
+
 def test_repository_lists_and_deletes_items_by_repo_path() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

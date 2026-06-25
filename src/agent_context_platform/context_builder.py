@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from agent_context_platform.context_composer import ContextComposer, ContextGroups
-from agent_context_platform.models import AssetType, TaskContext
+from agent_context_platform.models import AssetType, SearchResult, TaskContext
 from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
+from agent_context_platform.retrieval_trace import RetrievalTrace
 
 
 class TaskContextBuilder:
@@ -15,6 +16,7 @@ class TaskContextBuilder:
     ):
         self.search_service = search_service
         self.composer = composer or ContextComposer()
+        self.last_traces: dict[str, RetrievalTrace | None] = {}
 
     def build(
         self,
@@ -35,7 +37,8 @@ class TaskContextBuilder:
             repo_filter["repo"] = constraints["repo"]
 
         # 代码、DB、文档分开搜，避免一种资产的高分结果挤掉其他必要上下文。
-        related_code = self.search_service.search(
+        related_code = self._search(
+            "related_code",
             HybridSearchQuery(
                 query=task,
                 asset_type=AssetType.CODE,
@@ -43,7 +46,8 @@ class TaskContextBuilder:
                 filters={**repo_filter, **code_filters},
             )
         )
-        related_db_schema = self.search_service.search(
+        related_db_schema = self._search(
+            "related_db_schema",
             HybridSearchQuery(
                 query=task,
                 asset_type=AssetType.DB_SCHEMA,
@@ -51,7 +55,8 @@ class TaskContextBuilder:
                 filters=repo_filter,
             )
         )
-        related_docs = self.search_service.search(
+        related_docs = self._search(
+            "related_docs",
             HybridSearchQuery(
                 query=task,
                 asset_type=AssetType.DOC,
@@ -59,7 +64,8 @@ class TaskContextBuilder:
                 filters=repo_filter,
             )
         )
-        similar_implementations = self.search_service.search(
+        similar_implementations = self._search(
+            "similar_implementations",
             HybridSearchQuery(
                 query=task,
                 asset_type=AssetType.CODE,
@@ -78,6 +84,14 @@ class TaskContextBuilder:
             ),
             token_budget=_optional_positive_int(constraints.get("token_budget")),
         )
+
+    def _search(
+        self, group_name: str, search_query: HybridSearchQuery
+    ) -> list[SearchResult]:
+        """保留每个上下文分组的 trace，供 API debug response 无损展示。"""
+        results = self.search_service.search(search_query)
+        self.last_traces[group_name] = self.search_service.last_trace
+        return results
 
 
 def _optional_positive_int(value: Any) -> int | None:

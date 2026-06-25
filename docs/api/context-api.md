@@ -279,7 +279,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 - 不允许把缺失上下文包装成确定结论。
 - 当某类结果为空时，必须在 `missing_context` 或 `risks` 中体现；`risks` 为兼容字段，语义按待确认项理解。
 - `constraints.token_budget` 为正整数；开启后会按结果顺序裁剪上下文，并在裁剪导致某类证据为空时继续通过 `missing_context` / `risks` 暴露。
-- 当 `debug_options.include_trace=true` 时，响应中会增加 `_trace` 字段，包含各通道候选数和融合后结果摘要。`_trace` 为调试用途，结构可能随版本变化，暂不作为长期公开承诺。
+- 当 `debug_options.include_trace=true` 时，search 响应会增加 `_trace` 字段，包含 query token、alias expansion、每个召回通道的候选条目（item id、rank、raw score、reason）以及 RRF 融合后的 channel rank、score 和 reasons；`build-task-context` 则按 `related_code`、`related_db_schema`、`related_docs`、`similar_implementations` 分组放入 `_trace.queries`。`_trace` 为调试用途，结构可能随版本变化，暂不作为长期公开承诺。
 
 ## 错误处理
 

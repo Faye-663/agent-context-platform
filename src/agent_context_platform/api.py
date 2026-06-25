@@ -20,6 +20,7 @@ from agent_context_platform.embeddings import (
 )
 from agent_context_platform.models import AssetType, SearchResult
 from agent_context_platform.retrieval import HybridSearchQuery, HybridSearchService
+from agent_context_platform.retrieval_trace import RetrievalTrace
 
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ def create_app(
         return _error_response("invalid_request", "请求参数格式错误。", exc.errors())
 
     @app.post("/search-code")
-    def search_code(request: SearchRequest) -> dict[str, list[dict[str, Any]]]:
+    def search_code(request: SearchRequest) -> dict[str, Any]:
         with search_service_scope() as scoped_search_service:
             return _search_endpoint(
                 api_name="search-code",
@@ -128,7 +129,7 @@ def create_app(
             )
 
     @app.post("/search-db-schema")
-    def search_db_schema(request: SearchRequest) -> dict[str, list[dict[str, Any]]]:
+    def search_db_schema(request: SearchRequest) -> dict[str, Any]:
         with search_service_scope() as scoped_search_service:
             return _search_endpoint(
                 api_name="search-db-schema",
@@ -140,7 +141,7 @@ def create_app(
             )
 
     @app.post("/search-doc")
-    def search_doc(request: SearchRequest) -> dict[str, list[dict[str, Any]]]:
+    def search_doc(request: SearchRequest) -> dict[str, Any]:
         with search_service_scope() as scoped_search_service:
             return _search_endpoint(
                 api_name="search-doc",
@@ -158,7 +159,8 @@ def create_app(
         try:
             # API 层只负责请求/错误/日志包装，实际上下文聚合交给 TaskContextBuilder。
             with search_service_scope() as scoped_search_service:
-                context = TaskContextBuilder(scoped_search_service).build(
+                builder = TaskContextBuilder(scoped_search_service)
+                context = builder.build(
                     task=request.task,
                     limits=request.limits,
                     constraints=_constraints_with_repo(
@@ -191,13 +193,13 @@ def create_app(
         )
         response: dict[str, Any] = context.model_dump(mode="json")
         if _should_include_trace(request.debug_options):
-            response["_trace"] = _build_trace_from_results(
-                context.related_code
-                + context.related_db_schema
-                + context.related_docs
-                + context.similar_implementations,
-                query=request.task,
-            )
+            response["_trace"] = {
+                "query": request.task,
+                "queries": {
+                    name: _serialize_retrieval_trace(trace)
+                    for name, trace in builder.last_traces.items()
+                },
+            }
         return response
 
     return app
@@ -262,7 +264,7 @@ def _search_endpoint(
     )
     response: dict[str, Any] = {"results": _dump_results(results)}
     if _should_include_trace(request.debug_options):
-        response["_trace"] = _build_trace_from_results(results, query=request.query)
+        response["_trace"] = _serialize_retrieval_trace(search_service.last_trace)
     return response
 
 
@@ -378,4 +380,47 @@ def _build_trace_from_results(
         "alias_expansions": [],
         "channels": channel_info,
         "fused": fused,
+    }
+
+
+def _serialize_retrieval_trace(trace: RetrievalTrace | None) -> dict[str, Any]:
+    """将检索层 trace 原样转换为仅供 debug 使用的 JSON 结构。"""
+    if trace is None:
+        return {
+            "query": "",
+            "query_tokens": [],
+            "alias_expansions": [],
+            "channels": {},
+            "fused": [],
+        }
+
+    channels: dict[str, list[dict[str, Any]]] = {}
+    for hit in trace.hits:
+        channels.setdefault(hit.channel, []).append(
+            {
+                "item_id": hit.item.id,
+                "rank": hit.rank,
+                "raw_score": hit.raw_score,
+                "reason": hit.reason,
+            }
+        )
+
+    return {
+        "query": trace.query,
+        "query_tokens": list(trace.query_tokens),
+        "alias_expansions": list(trace.alias_expansions),
+        "channels": {
+            channel: {"candidate_count": len(hits), "hits": hits}
+            for channel, hits in channels.items()
+        },
+        "fused": [
+            {
+                "item_id": candidate.item.id,
+                "rrf_score": candidate.score,
+                "channel_ranks": candidate.channel_ranks,
+                "channel_scores": candidate.channel_scores,
+                "reasons": list(candidate.reasons),
+            }
+            for candidate in trace.fused
+        ],
     }

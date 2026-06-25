@@ -115,6 +115,51 @@ def test_search_interfaces_return_contract_results_with_source_citations() -> No
     )
 
 
+def test_search_debug_trace_serializes_internal_retrieval_details() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/search-code",
+        json={
+            "query": "payment message",
+            "debug_options": {"include_trace": True},
+        },
+    )
+
+    assert response.status_code == 200
+    trace = response.json()["_trace"]
+    assert trace["query"] == "payment message"
+    assert trace["query_tokens"] == ["message", "payment"]
+    assert trace["alias_expansions"] == []
+    assert trace["channels"]["lexical"]["hits"][0]["rank"] == 1
+    assert "keyword/lexical hit" in trace["channels"]["lexical"]["hits"][0]["reason"]
+    assert trace["fused"][0]["channel_ranks"] == {"lexical": 1}
+    assert trace["fused"][0]["rrf_score"] > 0
+
+
+def test_build_task_context_debug_trace_keeps_each_retrieval_group() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/build-task-context",
+        json={
+            "task": "payment message",
+            "debug_options": {"include_trace": True},
+        },
+    )
+
+    assert response.status_code == 200
+    traces = response.json()["_trace"]["queries"]
+    assert set(traces) == {
+        "related_code",
+        "related_db_schema",
+        "related_docs",
+        "similar_implementations",
+    }
+    assert traces["related_code"]["query_tokens"] == ["message", "payment"]
+    assert traces["related_code"]["fused"][0]["channel_ranks"] == {"lexical": 1}
+
+
 def test_search_interface_filters_results_by_repo() -> None:
     client = make_client()
 
