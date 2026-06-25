@@ -74,6 +74,8 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 
 `build-task-context` 的返回上下文包。
 
+每条 Context 内的 result 都带可选 `evidence_role`：代码和表结构为 `primary`，相似实现为 `related`，文档为 `background`。同一来源只保留优先级最高的结果，避免重复 evidence 消耗 token budget。
+
 | 字段 | 说明 |
 |---|---|
 | `query` | 原始任务描述 |

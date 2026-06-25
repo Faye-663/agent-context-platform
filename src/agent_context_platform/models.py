@@ -175,6 +175,8 @@ class SearchResult(BaseModel):
     match_reason: str = Field(min_length=1)
     # source 冗余自 item.source，方便 API 调用方不用展开 item 也能拿来源。
     source: SourceCitation
+    # evidence_role 只由 Context Composer 填充，用于区分上下文中的证据层级。
+    evidence_role: Literal["primary", "related", "background"] | None = None
 
     @model_validator(mode="after")
     def validate_result_source_matches_item_source(self) -> "SearchResult":

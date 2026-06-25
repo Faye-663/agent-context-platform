@@ -266,9 +266,9 @@ def test_build_task_context_groups_results_and_reports_missing_context() -> None
     )
     assert payload["related_db_schema"][0]["source"]["table"] == "payment_order"
     assert payload["related_docs"][0]["source"]["heading_path"] == "Payment Integration"
-    assert payload["similar_implementations"][0]["source"]["symbol"] == (
-        "PaymentMessageBuilder.build"
-    )
+    assert payload["related_code"][0]["evidence_role"] == "primary"
+    assert payload["related_docs"][0]["evidence_role"] == "background"
+    assert payload["similar_implementations"] == []
     assert payload["missing_context"] == []
     assert len(payload["citations"]) >= 3
 
