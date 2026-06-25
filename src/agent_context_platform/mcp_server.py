@@ -147,7 +147,7 @@ class McpTraceLogger:
 
 
 class ContextApiHttpClient:
-    def __init__(self, base_url: str, *, timeout_seconds: float = 10.0):
+    def __init__(self, base_url: str, *, timeout_seconds: float = 60.0):
         # base_url 指向 Context API，例如 "http://127.0.0.1:8000"。
         self.base_url = base_url.rstrip("/")
         # timeout_seconds 防止 MCP 工具调用无限等待后端 API。
