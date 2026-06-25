@@ -1,0 +1,6 @@
+{
+  "aliases": [
+    {"term": "智能助手", "expands_to": ["AiAgentEngine", "AiAdapterFactory", "ai_model"]},
+    {"term": "校园门禁", "expands_to": ["AccessControlServiceImpl", "card_access_point"]}
+  ]
+}

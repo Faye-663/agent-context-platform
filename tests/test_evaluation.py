@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from agent_context_platform import evaluation
 from agent_context_platform.evaluation import (
     EvaluationSample,
     ExpectedHit,
@@ -13,6 +14,7 @@ from agent_context_platform.evaluation import (
     format_grouped_reports,
     format_report,
     load_golden_tasks,
+    run_evaluation,
 )
 
 
@@ -123,6 +125,42 @@ def test_evaluation_reports_failed_samples_and_missing_sources() -> None:
     assert report.source_citation_completeness == 0.0
     assert report.samples[0].missing_source_result_ids == ["code:Unknown"]
     assert report.samples[0].first_hit_rank is None
+
+
+def test_evaluation_uses_expected_asset_group_for_single_type_samples() -> None:
+    sample = EvaluationSample(
+        id="schema-001",
+        task="查询订单表结构",
+        expected_hits=[ExpectedHit(source_type="db_schema", table="payment_order")],
+    )
+    payloads = {
+        "schema-001": {
+            "related_code": [
+                _result(
+                    "code:unrelated",
+                    {
+                        "source_type": "code",
+                        "path": "src/Unrelated.java",
+                        "start_line": 1,
+                        "end_line": 2,
+                    },
+                )
+            ],
+            "related_db_schema": [
+                _result(
+                    "db_schema:payment_order",
+                    {"source_type": "db_schema", "table": "payment_order"},
+                )
+            ],
+            "related_docs": [],
+            "similar_implementations": [],
+        }
+    }
+
+    report = evaluate_context_payloads([sample], payloads, top_k=1)
+
+    assert report.top_k_hit_rate == 1.0
+    assert report.samples[0].first_hit_rank == 1
 
 
 def test_load_golden_tasks_loads_12_samples_in_4_groups() -> None:
@@ -436,6 +474,50 @@ def test_top_k_increases_mrr_scope() -> None:
 
     assert report.top_k_hit_rate == 1.0
     assert report.samples[0].first_hit_rank == 3
+
+
+def test_run_evaluation_passes_explicit_repo_and_expected_commit(monkeypatch) -> None:
+    sample = EvaluationSample(
+        id="repo-001",
+        task="查询 AI 配置实现",
+        expected_hits=[ExpectedHit(source_type="code", symbol="AiConfigController")],
+    )
+    captured: list[dict[str, object]] = []
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"related_code": [], "related_db_schema": [], "related_docs": [], "similar_implementations": []}'
+
+    def fake_urlopen(request, *, timeout: int):  # type: ignore[no-untyped-def]
+        captured.append(json.loads(request.data.decode("utf-8")))
+        assert timeout == 30
+        return FakeResponse()
+
+    monkeypatch.setattr(evaluation, "urlopen", fake_urlopen)
+
+    run_evaluation(
+        {"code_search": [sample]},
+        api_base_url="http://context-api.example",
+        repo="github.com/BaSui01/smart-campus",
+        expected_commit_sha="95c69bb5dcfe943d32ab3a7e6947a29aeb140ae7",
+        timeout=30,
+    )
+
+    assert captured == [
+        {
+            "task": "查询 AI 配置实现",
+            "constraints": {
+                "repo": "github.com/BaSui01/smart-campus",
+                "expected_commit_sha": "95c69bb5dcfe943d32ab3a7e6947a29aeb140ae7",
+            },
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------

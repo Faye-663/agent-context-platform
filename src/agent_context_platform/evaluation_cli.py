@@ -30,6 +30,16 @@ def main() -> None:
         help="Context API 地址 (默认: http://127.0.0.1:8000)",
     )
     parser.add_argument(
+        "--repo",
+        default=None,
+        help="评测请求显式传入的 repo identity；不传时保持现有调用行为。",
+    )
+    parser.add_argument(
+        "--expected-commit",
+        default=None,
+        help="评测请求期望匹配的 source commit SHA。",
+    )
+    parser.add_argument(
         "--top-k",
         type=int,
         default=5,
@@ -87,6 +97,8 @@ def main() -> None:
     group_reports = run_evaluation(
         tasks,
         api_base_url=args.api,
+        repo=args.repo,
+        expected_commit_sha=args.expected_commit,
         top_k=args.top_k,
         min_hit_rate=args.min_hit_rate,
         timeout=args.timeout,

@@ -97,7 +97,7 @@ def evaluate_context_payloads(
 
     for sample in samples:
         payload = payloads_by_sample_id.get(sample.id, {})
-        results = _flatten_context_results(payload)
+        results = _results_for_sample(payload, sample)
         top_k_results = results[:top_k]
         # irrelevant 检查使用 2×top_k 范围
         top_wide = results[: top_k * 2]
@@ -186,6 +186,24 @@ def _flatten_context_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(values, list):
             results.extend(value for value in values if isinstance(value, dict))
     return results
+
+
+def _results_for_sample(
+    payload: dict[str, Any], sample: EvaluationSample
+) -> list[dict[str, Any]]:
+    """单资产类型样本只评估对应 Context 分组，避免其他分组挤占 top-k。"""
+    groups_by_source_type = {
+        "code": "related_code",
+        "db_schema": "related_db_schema",
+        "doc": "related_docs",
+    }
+    expected_source_types = {hit.source_type for hit in sample.expected_hits}
+    if len(expected_source_types) == 1:
+        group_name = groups_by_source_type.get(next(iter(expected_source_types)))
+        group_results = payload.get(group_name, []) if group_name else []
+        if isinstance(group_results, list):
+            return [result for result in group_results if isinstance(result, dict)]
+    return _flatten_context_results(payload)
 
 
 def _source_matches_expected(source: Any, expected: ExpectedHit) -> bool:
@@ -325,6 +343,8 @@ def run_evaluation(
     tasks: dict[str, list[EvaluationSample]],
     api_base_url: str,
     *,
+    repo: str | None = None,
+    expected_commit_sha: str | None = None,
     top_k: int = 5,
     min_hit_rate: float = 0.7,
     timeout: int = 180,
@@ -344,7 +364,18 @@ def run_evaluation(
         for sample in samples:
             try:
                 url = f"{api_base}/build-task-context"
-                body = json.dumps({"task": sample.task}).encode("utf-8")
+                body_data: dict[str, Any] = {"task": sample.task}
+                constraints = {
+                    key: value
+                    for key, value in {
+                        "repo": repo,
+                        "expected_commit_sha": expected_commit_sha,
+                    }.items()
+                    if value is not None
+                }
+                if constraints:
+                    body_data["constraints"] = constraints
+                body = json.dumps(body_data).encode("utf-8")
                 request = Request(
                     url,
                     data=body,
