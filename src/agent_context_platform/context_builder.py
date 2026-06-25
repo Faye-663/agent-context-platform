@@ -17,6 +17,7 @@ class TaskContextBuilder:
         self.search_service = search_service
         self.composer = composer or ContextComposer()
         self.last_traces: dict[str, RetrievalTrace | None] = {}
+        self.last_version_mismatches: dict[str, bool] = {}
 
     def build(
         self,
@@ -35,6 +36,8 @@ class TaskContextBuilder:
         repo_filter: dict[str, Any] = {}
         if constraints.get("repo"):
             repo_filter["repo"] = constraints["repo"]
+        if constraints.get("expected_commit_sha"):
+            repo_filter["expected_commit_sha"] = constraints["expected_commit_sha"]
 
         # 代码、DB、文档分开搜，避免一种资产的高分结果挤掉其他必要上下文。
         related_code = self._search(
@@ -83,6 +86,7 @@ class TaskContextBuilder:
                 similar_implementations=similar_implementations,
             ),
             token_budget=_optional_positive_int(constraints.get("token_budget")),
+            version_mismatch=any(self.last_version_mismatches.values()),
         )
 
     def _search(
@@ -91,6 +95,7 @@ class TaskContextBuilder:
         """保留每个上下文分组的 trace，供 API debug response 无损展示。"""
         results = self.search_service.search(search_query)
         self.last_traces[group_name] = self.search_service.last_trace
+        self.last_version_mismatches[group_name] = self.search_service.last_version_mismatch
         return results
 
 

@@ -211,6 +211,61 @@ def test_hybrid_search_filters_candidates_by_repo() -> None:
     ]
 
 
+def test_hybrid_search_applies_expected_commit_before_candidate_limit() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    repository = IndexedItemRepository(session)
+    repo = "gitlab.example.com/payments/payment-service"
+
+    for index in range(30):
+        repository.save(
+            make_item(
+                f"code:stale-{index:02d}",
+                AssetType.CODE,
+                "PaymentMessageBuilder.build",
+                "build payment message",
+                SourceCitation(
+                    source_type=SourceType.CODE,
+                    repo=repo,
+                    path=f"src/Stale{index:02d}.java",
+                    start_line=1,
+                    end_line=3,
+                    commit_sha="stale-commit",
+                ),
+                {"language": "java", "symbol_type": "method"},
+            )
+        )
+    repository.save(
+        make_item(
+            "code:zcurrent",
+            AssetType.CODE,
+            "PaymentMessageBuilder.build",
+            "build payment message",
+            SourceCitation(
+                source_type=SourceType.CODE,
+                repo=repo,
+                path="src/Current.java",
+                start_line=1,
+                end_line=3,
+                commit_sha="current-commit",
+            ),
+            {"language": "java", "symbol_type": "method"},
+        )
+    )
+    session.commit()
+
+    results = HybridSearchService(repository).search(
+        HybridSearchQuery(
+            query="payment message",
+            asset_type=AssetType.CODE,
+            filters={"repo": repo, "expected_commit_sha": "current-commit"},
+        )
+    )
+
+    assert [result.item.id for result in results] == ["code:zcurrent"]
+
+
 def test_hybrid_search_combines_vector_similarity_with_keyword_score() -> None:
     service = make_service()
 

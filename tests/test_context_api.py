@@ -183,7 +183,28 @@ def test_search_interface_filters_results_by_repo() -> None:
         "gitlab.example.com/payments/payment-service"
     )
     assert missing_response.status_code == 200
-    assert missing_response.json() == {"results": []}
+    assert missing_response.json() == {
+        "result_status": "empty",
+        "results": [],
+        "risks": [],
+    }
+
+
+def test_search_strictly_filters_results_by_expected_commit() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/search-code",
+        json={
+            "query": "payment message",
+            "filters": {"expected_commit_sha": "missing-commit"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result_status"] == "empty"
+    assert response.json()["results"] == []
+    assert response.json()["risks"][0]["code"] == "STALE_INDEX"
 
 
 def test_search_interfaces_return_empty_results_and_invalid_request_error() -> None:
@@ -193,7 +214,11 @@ def test_search_interfaces_return_empty_results_and_invalid_request_error() -> N
     invalid_response = client.post("/search-code", json={"query": ""})
 
     assert empty_response.status_code == 200
-    assert empty_response.json() == {"results": []}
+    assert empty_response.json() == {
+        "result_status": "empty",
+        "results": [],
+        "risks": [],
+    }
     assert invalid_response.status_code == 400
     assert invalid_response.json()["error"]["code"] == "invalid_request"
 

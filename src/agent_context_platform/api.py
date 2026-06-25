@@ -54,6 +54,8 @@ class SearchFilters(BaseModel):
     table: str | None = None
     # repo 限定 GitLab code repo identity，例如 "gitlab.example.com/group/project"。
     repo: str | None = None
+    # expected_commit_sha 严格限定证据版本；不匹配的索引项不会进入结果。
+    expected_commit_sha: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -262,7 +264,11 @@ def _search_endpoint(
         result_count=len(results),
         elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
     )
-    response: dict[str, Any] = {"results": _dump_results(results)}
+    response: dict[str, Any] = {
+        "result_status": "ok" if results else "empty",
+        "results": _dump_results(results),
+        "risks": _search_risks(search_service, results),
+    }
     if _should_include_trace(request.debug_options):
         response["_trace"] = _serialize_retrieval_trace(search_service.last_trace)
     return response
@@ -310,6 +316,28 @@ def _constraints_with_repo(
 
 def _dump_results(results: list[SearchResult]) -> list[dict[str, Any]]:
     return [result.model_dump(mode="json") for result in results]
+
+
+def _search_risks(
+    search_service: HybridSearchService, results: list[SearchResult]
+) -> list[dict[str, str]]:
+    risks: list[dict[str, str]] = []
+    if search_service.last_version_mismatch:
+        risks.append(
+            {
+                "code": "STALE_INDEX",
+                "message": "存在不匹配指定 commit 的候选，已严格排除。",
+            }
+        )
+    repos = {result.source.repo for result in results if result.source.repo}
+    if len(repos) > 1:
+        risks.append(
+            {
+                "code": "CROSS_REPO_RESULTS",
+                "message": "结果来自多个 repo，需要确认跨仓上下文是否符合任务边界。",
+            }
+        )
+    return risks
 
 
 def _error_response(

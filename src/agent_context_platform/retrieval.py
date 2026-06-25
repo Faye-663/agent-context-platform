@@ -52,6 +52,7 @@ class HybridSearchService:
         self.domain_vocabulary = domain_vocabulary or DomainVocabulary.empty()
         self.rrf_k = rrf_k
         self.last_trace: RetrievalTrace | None = None
+        self.last_version_mismatch = False
 
     def search(self, search_query: HybridSearchQuery) -> list[SearchResult]:
         # search 是 RAG 检索编排层：它不解析文件、不直接写库，只合并多路召回候选。
@@ -61,6 +62,7 @@ class HybridSearchService:
 
         filters = dict(search_query.filters or {})
         repo = filters.get("repo")
+        expected_commit_sha = filters.get("expected_commit_sha")
         symbol_types = _as_string_list(filters.get("symbol_type"))
         alias_expansions = self.domain_vocabulary.expand_query(query)
         expanded_query = _expanded_query_text(query, alias_expansions)
@@ -92,6 +94,7 @@ class HybridSearchService:
                 language=filters.get("language"),
                 symbol_types=symbol_types,
                 table=filters.get("table"),
+                expected_commit_sha=expected_commit_sha,
                 query_tokens=token_set.tokens,
                 limit=candidate_limit,
             )
@@ -110,6 +113,7 @@ class HybridSearchService:
                             language=filters.get("language"),
                             symbol_types=symbol_types,
                             table=filters.get("table"),
+                            expected_commit_sha=expected_commit_sha,
                             query_embedding=query_embedding,
                             embedding_identity=embedding_identity,
                             limit=candidate_limit,
@@ -135,6 +139,7 @@ class HybridSearchService:
                             language=filters.get("language"),
                             symbol_types=symbol_types,
                             table=filters.get("table"),
+                            expected_commit_sha=expected_commit_sha,
                             embedding_identity=embedding_identity,
                         )
                     ],
@@ -148,8 +153,25 @@ class HybridSearchService:
                 path_prefix=filters.get("path_prefix"),
                 language=filters.get("language"),
                 symbol_types=symbol_types,
+                expected_commit_sha=expected_commit_sha,
                 query_terms=token_set.symbol_terms + token_set.tokens,
                 limit=candidate_limit,
+            )
+        )
+
+        self.last_version_mismatch = bool(
+            expected_commit_sha
+            and not recall_hits
+            and self._lexical_recall(
+                asset_type=search_query.asset_type,
+                repo=repo,
+                path_prefix=filters.get("path_prefix"),
+                language=filters.get("language"),
+                symbol_types=symbol_types,
+                table=filters.get("table"),
+                expected_commit_sha=None,
+                query_tokens=token_set.tokens,
+                limit=1,
             )
         )
 
@@ -189,6 +211,7 @@ class HybridSearchService:
         language: str | None,
         symbol_types: list[str] | None,
         table: str | None,
+        expected_commit_sha: str | None,
         query_tokens: tuple[str, ...],
         limit: int,
     ) -> list[RecallHit]:
@@ -201,6 +224,7 @@ class HybridSearchService:
             language=language,
             symbol_types=symbol_types,
             table=table,
+            expected_commit_sha=expected_commit_sha,
             keywords=sorted(query_tokens),
             limit=limit,
         )
@@ -241,6 +265,7 @@ class HybridSearchService:
         path_prefix: str | None,
         language: str | None,
         symbol_types: list[str] | None,
+        expected_commit_sha: str | None,
         query_terms: tuple[str, ...],
         limit: int,
     ) -> list[RecallHit]:
@@ -252,6 +277,7 @@ class HybridSearchService:
             path_prefix=path_prefix,
             language=language,
             kinds=kinds,
+            expected_commit_sha=expected_commit_sha,
         )
         scored_symbols = _score_symbols(symbols, query_terms)
         hits: list[tuple[IndexedItem, float, str]] = []
