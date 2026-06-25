@@ -4,32 +4,39 @@ const McpClient = {
   serverUrl: '',
 
   async listTools(url) {
+    const requestBody = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      body: JSON.stringify(requestBody),
     });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'tools/list failed');
-    return data.result.tools || [];
+    const responseBody = await resp.json();
+    if (responseBody.error) throw new Error(responseBody.error.message || 'tools/list failed');
+    return responseBody.result.tools || [];
   },
 
   async callTool(url, name, args) {
+    const requestBody = {
+      jsonrpc: '2.0', id: Date.now(), method: 'tools/call',
+      params: { name, arguments: args },
+    };
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: Date.now(), method: 'tools/call',
-        params: { name, arguments: args },
-      }),
+      body: JSON.stringify(requestBody),
     });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'tools/call failed');
-    if (data.result.content[0]?.text) {
-      try { return JSON.parse(data.result.content[0].text); }
+    const responseBody = await resp.json();
+    if (responseBody.error) throw new Error(responseBody.error.message || 'tools/call failed');
+    if (responseBody.result.content[0]?.text) {
+      try {
+        return {
+          wire: { request: requestBody, response: responseBody },
+          result: JSON.parse(responseBody.result.content[0].text),
+        };
+      }
       catch (e) { throw new Error('Failed to parse tool response: ' + e.message); }
     }
-    return data.result;
+    return { wire: { request: requestBody, response: responseBody }, result: responseBody.result };
   },
 };
 
@@ -75,11 +82,14 @@ const App = {
 
   renderTools() {
     const ul = document.getElementById('tools');
-    ul.innerHTML = '';
+    ul.replaceChildren();
     this.tools.forEach(t => {
       const li = document.createElement('li');
       li.dataset.toolName = t.name;
-      li.innerHTML = '<span class="tool-name">' + t.name + '</span>';
+      const name = document.createElement('span');
+      name.className = 'tool-name';
+      name.textContent = t.name;
+      li.appendChild(name);
       li.onclick = () => this.selectTool(t);
       ul.appendChild(li);
     });
@@ -95,7 +105,7 @@ const App = {
     document.getElementById('selected-tool-desc').textContent = tool.description || '';
 
     const form = document.getElementById('param-form');
-    form.innerHTML = '';
+    form.replaceChildren();
     const schema = tool.inputSchema;
     if (schema && schema.properties) {
       Object.entries(schema.properties).forEach(([key, prop]) => {
@@ -145,25 +155,21 @@ const App = {
     }
 
     try {
-      const result = await McpClient.callTool(McpClient.serverUrl, this.selectedTool.name, args);
-      this.renderResponse(result);
+      const response = await McpClient.callTool(McpClient.serverUrl, this.selectedTool.name, args);
+      this.renderResponse(response.result, response.wire);
     } catch (e) {
-      document.getElementById('raw-response').innerHTML =
-        '<pre style="color:#c0392b">Error: ' + e.message + '</pre>';
-      document.getElementById('readable-response').innerHTML = '';
+      this.renderJson(document.getElementById('raw-response'), { error: String(e.message) }, 'error-response');
+      document.getElementById('readable-response').replaceChildren();
       document.getElementById('trace-panel').classList.add('collapsed');
     }
   },
 
-  renderResponse(data) {
-    // Raw JSON
-    const rawEl = document.getElementById('raw-response');
-    rawEl.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+  renderResponse(data, wire) {
+    this.renderJson(document.getElementById('raw-response'), wire);
 
-    // Readable
     const readable = document.getElementById('readable-response');
     const toolName = this.selectedTool.name;
-    readable.innerHTML = '';
+    readable.replaceChildren();
 
     if (toolName === 'build_task_context') {
       this.renderTaskContext(data, readable);
@@ -174,8 +180,7 @@ const App = {
     // Trace
     const tracePanel = document.getElementById('trace-panel');
     if (data._trace) {
-      document.getElementById('trace-content').innerHTML =
-        '<pre>' + JSON.stringify(data._trace, null, 2) + '</pre>';
+      this.renderJson(document.getElementById('trace-content'), data._trace);
       tracePanel.classList.remove('collapsed');
     } else {
       tracePanel.classList.add('collapsed');
@@ -184,27 +189,33 @@ const App = {
 
   renderSearchResults(data, container) {
     const results = data.results || [];
-    if (!results.length) { container.innerHTML = '<p>No results.</p>'; return; }
+    if (!results.length) {
+      this.appendText(container, 'p', 'No results.');
+      return;
+    }
     results.forEach((r, i) => {
       const item = r.item || {};
       const src = r.source || {};
       const card = document.createElement('div');
       card.className = 'result-card';
-      let html = '<div class="result-header">';
-      html += '<span class="result-score">#' + (i+1) + ' Score: ' + (r.score || 0).toFixed(4) + '</span>';
-      html += '</div>';
-      html += '<div class="result-title">' + (item.title || item.id || '-') + '</div>';
-      html += '<div class="result-reason">' + (r.match_reason || '') + '</div>';
-      if (src.path) html += '<div class="result-path">' + src.path +
-        (src.start_line ? ':' + src.start_line + '-' + src.end_line : '') + '</div>';
-      if (r.score_parts) {
-        html += '<div class="score-parts">';
-        Object.entries(r.score_parts).forEach(([k, v]) => {
-          if (v > 0) html += '<span class="score-part">' + k + ': ' + v.toFixed(4) + '</span>';
-        });
-        html += '</div>';
+      const header = document.createElement('div');
+      header.className = 'result-header';
+      this.appendText(header, 'span', '#' + (i + 1) + ' Score: ' + (r.score || 0).toFixed(4), 'result-score');
+      card.appendChild(header);
+      this.appendText(card, 'div', item.title || item.id || '-', 'result-title');
+      this.appendText(card, 'div', r.match_reason || '', 'result-reason');
+      if (src.path) {
+        const lineRange = src.start_line ? ':' + src.start_line + '-' + src.end_line : '';
+        this.appendText(card, 'div', src.path + lineRange, 'result-path');
       }
-      card.innerHTML = html;
+      if (r.score_parts) {
+        const scoreParts = document.createElement('div');
+        scoreParts.className = 'score-parts';
+        Object.entries(r.score_parts).forEach(([k, v]) => {
+          if (v > 0) this.appendText(scoreParts, 'span', k + ': ' + v.toFixed(4), 'score-part');
+        });
+        card.appendChild(scoreParts);
+      }
       container.appendChild(card);
     });
   },
@@ -244,12 +255,27 @@ const App = {
       if (data[g] && data[g].length) {
         this.renderSearchResults({ results: data[g] }, content);
       } else {
-        content.innerHTML = '<p>No results in this category.</p>';
+        this.appendText(content, 'p', 'No results in this category.');
       }
       container.appendChild(content);
       tabContents[g] = content;
     });
     container.appendChild(tabBar);
+  },
+
+  appendText(container, tagName, text, className) {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    element.textContent = text;
+    container.appendChild(element);
+    return element;
+  },
+
+  renderJson(container, value, className) {
+    const pre = document.createElement('pre');
+    if (className) pre.className = className;
+    pre.textContent = JSON.stringify(value, null, 2);
+    container.replaceChildren(pre);
   },
 };
 
