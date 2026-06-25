@@ -27,6 +27,10 @@ class ContextComposer:
         related_docs = list(groups.related_docs)
         similar_implementations = list(groups.similar_implementations)
 
+        related_code, related_db_schema, similar_implementations, related_docs = _classify_and_dedupe(
+            related_code, related_db_schema, similar_implementations, related_docs
+        )
+
         if token_budget is not None:
             related_code, related_db_schema, related_docs, similar_implementations = (
                 _apply_token_budget(
@@ -97,6 +101,32 @@ def _apply_token_budget(
                 remaining -= cost
         kept_groups.append(kept)
     return kept_groups[0], kept_groups[1], kept_groups[2], kept_groups[3]
+
+
+def _classify_and_dedupe(
+    related_code: list[SearchResult],
+    related_db_schema: list[SearchResult],
+    similar_implementations: list[SearchResult],
+    related_docs: list[SearchResult],
+) -> tuple[list[SearchResult], list[SearchResult], list[SearchResult], list[SearchResult]]:
+    seen: set[str] = set()
+
+    def keep(results: list[SearchResult], role: str) -> list[SearchResult]:
+        kept: list[SearchResult] = []
+        for result in results:
+            key = result.source.model_dump_json()
+            if key in seen:
+                continue
+            seen.add(key)
+            kept.append(result.model_copy(update={"evidence_role": role}))
+        return kept
+
+    return (
+        keep(related_code, "primary"),
+        keep(related_db_schema, "primary"),
+        keep(similar_implementations, "related"),
+        keep(related_docs, "background"),
+    )
 
 
 def _estimate_result_tokens(result: SearchResult) -> int:
