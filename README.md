@@ -23,7 +23,7 @@ agent-context-platform 按生产级项目维护当前文档和运行边界。当
 - DebugOptions：search / build-task-context 支持 `debug_options.include_trace`。
 - MCP wrapper：`search_code`、`search_db_schema`、`search_doc`、`build_task_context`。
 - Evaluation：`eval/golden-tasks.json`、`acp-eval` CLI 和回归测试入口。
-- MCP Web Playground：`playground/` 提供开发调试入口。
+- MCP Web Playground：`playground/` 提供开发调试入口，可查看单次调用的原始 JSON-RPC request/response、可读结果和 debug trace；页面对远端 MCP 内容使用安全文本渲染。
 - 固定 ASGI 入口：`agent_context_platform.asgi:app`。
 - 初始化索引 CLI：`acp-index --root <path>`。
 - Embedding provider：OpenAI-compatible `/v1/embeddings` 和 message-style `/infer`。
