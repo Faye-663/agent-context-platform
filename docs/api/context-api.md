@@ -102,7 +102,7 @@ Context API 是系统稳定内核。MCP wrapper、CLI 或未来 UI 都应围绕�
 | `qualified_name` | 完整限定名，用于 exact / prefix lookup |
 | `start_line` | 起始行号，可为空 |
 | `end_line` | 结束行号，可为空 |
-| `source_item_id` | 同 repo 下可展示或可检索的 `IndexedItem.id`，可为空 |
+| `source_item_id` | 同 repo 下可展示且可检索的 `IndexedItem.id`；Java / SQL catalog symbol 必填 |
 | `branch` / `commit_sha` / `file_hash` / `indexed_at` / `index_batch_id` | 与 `SourceCitation` 对齐的索引 provenance |
 
 当前 catalog 只记录 definitions，不记录 method call、field access、type reference 或 graph edge。
