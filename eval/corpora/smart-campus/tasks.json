@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "groups": {
+    "code_search": {"samples": [
+      {"id": "smart-code-001", "task": "AI provider adapter 的工厂在哪里注册和选择？", "expected_hits": [{"source_type": "code", "path": "backend/smart-campus-ai/src/main/java/com/smartcampus/ai/adapter/AiAdapterFactory.java", "symbol": "AiAdapterFactory"}]},
+      {"id": "smart-code-002", "task": "智能助手执行工具调用的核心引擎在哪里？", "expected_hits": [{"source_type": "code", "path": "backend/smart-campus-ai/src/main/java/com/smartcampus/ai/agent/AiAgentEngine.java", "symbol": "AiAgentEngine"}]},
+      {"id": "smart-code-003", "task": "校园卡门禁权限控制的服务实现在哪里？", "expected_hits": [{"source_type": "code", "path": "backend/smart-campus-card/src/main/java/com/smartcampus/card/service/impl/AccessControlServiceImpl.java", "symbol": "AccessControlServiceImpl"}]}
+    ]},
+    "schema_search": {"samples": [
+      {"id": "smart-schema-001", "task": "AI 配置的数据库表结构", "expected_hits": [{"source_type": "db_schema", "table": "ai_config"}]},
+      {"id": "smart-schema-002", "task": "AI 模型配置和供应商字段定义", "expected_hits": [{"source_type": "db_schema", "table": "ai_model"}]},
+      {"id": "smart-schema-003", "task": "校园卡基础信息表的字段", "expected_hits": [{"source_type": "db_schema", "table": "campus_card"}]}
+    ]},
+    "doc_search": {"samples": [
+      {"id": "smart-doc-001", "task": "智慧校园项目的总体架构和业务范围说明", "expected_hits": [{"source_type": "doc", "path": "README.md", "heading_path": "智慧校园管理系统 Smart Campus > 项目概览"}]},
+      {"id": "smart-doc-002", "task": "后端模块和 AI 助手能力的说明文档", "expected_hits": [{"source_type": "doc", "path": "README.md", "heading_path": "智慧校园管理系统 Smart Campus > 后端模块一览 > 核心业务域"}]}
+    ]},
+    "task_context": {"samples": [
+      {"id": "smart-context-001", "task": "修改 AI 配置管理，需要确认控制器、模型表和项目模块说明", "expected_hits": [{"source_type": "code", "symbol": "AiConfigController"}, {"source_type": "db_schema", "table": "ai_config"}, {"source_type": "doc", "path": "README.md", "heading_path": "智慧校园管理系统 Smart Campus > 后端模块一览 > 核心业务域"}]},
+      {"id": "smart-context-002", "task": "排查校园门禁访问控制，需要确认服务实现、门禁点表和一卡通模块背景", "expected_hits": [{"source_type": "code", "symbol": "AccessControlServiceImpl"}, {"source_type": "db_schema", "table": "card_access_point"}, {"source_type": "doc", "path": "README.md", "heading_path": "智慧校园管理系统 Smart Campus > 后端模块一览 > 核心业务域"}]}
+    ]},
+    "alias_search": {"samples": [
+      {"id": "smart-alias-001", "task": "智能助手如何编排工具调用？", "expected_hits": [{"source_type": "code", "symbol": "AiAgentEngine"}]},
+      {"id": "smart-alias-002", "task": "校园门禁的访问点和控制服务在哪里？", "expected_hits": [{"source_type": "code", "symbol": "AccessControlServiceImpl"}, {"source_type": "db_schema", "table": "card_access_point"}]}
+    ]}
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repository": {
+    "url": "https://github.com/BaSui01/smart-campus.git",
+    "repo": "github.com/BaSui01/smart-campus",
+    "commit_sha": "95c69bb5dcfe943d32ab3a7e6947a29aeb140ae7"
+  },
+  "index_scope": {
+    "paths": ["backend", "docs", "README.md", "CLAUDE.md"],
+    "exclude": ["**/src/test/**", "**/migration-mysql/**", "**/migration-oracle/**"]
+  },
+  "embedding_enabled": false,
+  "task_file": "tasks.json",
+  "alias_file": "aliases.json"
+}
