@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     and_,
+    case,
     create_engine,
     func,
     or_,
@@ -568,22 +569,26 @@ class IndexedItemRepository:
             table=table,
         )
         keyword_conditions = []
+        keyword_match_counts = []
         for keyword in keywords:
             pattern = f"%{keyword.lower()}%"
-            keyword_conditions.extend(
-                [
-                    func.lower(IndexedItemRecord.title).like(pattern),
-                    func.lower(IndexedItemRecord.content).like(pattern),
-                    func.lower(IndexedItemRecord.summary).like(pattern),
-                    func.lower(IndexedItemRecord.symbol).like(pattern),
-                    func.lower(IndexedItemRecord.table_name).like(pattern),
-                    func.lower(IndexedItemRecord.heading_path).like(pattern),
-                    func.lower(IndexedItemRecord.path).like(pattern),
-                ]
+            keyword_match = or_(
+                func.lower(IndexedItemRecord.title).like(pattern),
+                func.lower(IndexedItemRecord.content).like(pattern),
+                func.lower(IndexedItemRecord.summary).like(pattern),
+                func.lower(IndexedItemRecord.symbol).like(pattern),
+                func.lower(IndexedItemRecord.table_name).like(pattern),
+                func.lower(IndexedItemRecord.heading_path).like(pattern),
+                func.lower(IndexedItemRecord.path).like(pattern),
             )
+            keyword_conditions.append(keyword_match)
+            # 在截断候选集前优先覆盖更多 query token 的资产，避免泛词命中的
+            # 字母序靠前条目把精确候选挤出候选池。
+            keyword_match_counts.append(case((keyword_match, 1), else_=0))
         statement = statement.where(or_(*keyword_conditions))
+        match_count = sum(keyword_match_counts)
         records = self.session.scalars(
-            statement.order_by(IndexedItemRecord.id).limit(limit)
+            statement.order_by(match_count.desc(), IndexedItemRecord.id).limit(limit)
         ).all()
         return [record.to_indexed_item() for record in records]
 
