@@ -1,6 +1,9 @@
 {
   "aliases": [
     {"term": "智能助手", "expands_to": ["AiAgentEngine", "AiAdapterFactory", "ai_model"]},
-    {"term": "校园门禁", "expands_to": ["AccessControlServiceImpl", "card_access_point"]}
+    {"term": "校园门禁", "expands_to": ["AccessControlServiceImpl", "card_access_point"]},
+    {"term": "校园卡门禁", "expands_to": ["AccessControlServiceImpl", "card_access_point", "campus_card"]},
+    {"term": "校园卡", "expands_to": ["campus_card", "card_access_point", "AccessControlServiceImpl"]},
+    {"term": "后端模块", "expands_to": ["核心业务域", "smart-campus-ai"]}
   ]
 }
