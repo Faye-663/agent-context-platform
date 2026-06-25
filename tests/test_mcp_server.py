@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_context_platform import mcp_server
 from agent_context_platform.mcp_server import (
     ContextApiError,
+    ContextApiHttpClient,
     ContextApiToolClient,
     McpTraceLogger,
     McpServerConfigError,
@@ -34,6 +36,19 @@ class FakeHttpClient:
     def post(self, path: str, json: dict[str, object]) -> FakeResponse:
         self.calls.append((path, json))
         return self.response
+
+
+class FakeUrlopenResponse:
+    status = 200
+
+    def __enter__(self) -> "FakeUrlopenResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return b'{"results": []}'
 
 
 def test_load_mcp_server_settings_defaults_to_stdio() -> None:
@@ -108,6 +123,26 @@ def test_create_mcp_server_configures_streamable_http_endpoint() -> None:
     assert server.settings.host == "0.0.0.0"
     assert server.settings.port == 9001
     assert server.settings.streamable_http_path == "/agent-context"
+
+
+def test_context_api_http_client_allows_real_project_retrieval_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, float] = {}
+
+    def fake_urlopen(_request: object, *, timeout: float) -> FakeUrlopenResponse:
+        observed["timeout"] = timeout
+        return FakeUrlopenResponse()
+
+    monkeypatch.setattr(mcp_server, "urlopen", fake_urlopen)
+
+    response = ContextApiHttpClient("http://context-api.example.com").post(
+        "/search-code", {"query": "CampusController"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"results": []}
+    assert observed["timeout"] == 60.0
 
 
 def test_build_task_context_tool_posts_http_contract_payload() -> None:
